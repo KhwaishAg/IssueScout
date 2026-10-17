@@ -1434,11 +1434,11 @@ issuescout/
 
 These need an answer from the project owner before or during Phase 0.
 
-- [ ] Is the name IssueScout free as a GitHub App name and as a package name? This has not been checked.
-- [ ] What is the monthly hosting budget, and are AWS student credits available?
-- [ ] Are private repositories in scope for version 1, or public only?
-- [ ] Which repositories are the targets for the first five installations?
-- [ ] Is Langfuse tracing worth adding, now that it is optional?
+- [x] Is the name IssueScout free as a GitHub App name and as a package name? Package: free on PyPI. GitHub App: confirmed at registration. (ADR 0004)
+- [x] What is the monthly hosting budget, and are AWS student credits available? No budget; free options only. (ADR 0004)
+- [x] Are private repositories in scope for version 1, or public only? Public only. (ADR 0004)
+- [x] Which repositories are the targets for the first five installations? The owner's own repositories. (ADR 0004)
+- [x] Is Langfuse tracing worth adding, now that it is optional? No. (ADR 0004)
 
 ### Appendix E: Requirement counts
 
