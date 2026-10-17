@@ -13,7 +13,7 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 ## Current status
 
 - Phase: 0 (Foundations)
-- Next package: P0.3 Docker Compose
+- Next package: P0.4 CI workflow
 - Update these two lines whenever a package closes.
 
 ## How we work

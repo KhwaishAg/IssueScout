@@ -31,3 +31,16 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - mypy uses the `pydantic.mypy` plugin (ships with pydantic, no new dependency).
 
 **Dependencies added.** `pydantic-settings`, `structlog` (both in the fixed stack).
+## P0.3 Docker Compose
+
+**Built.** `deploy/compose.yaml` with Qdrant v1.15.5, MongoDB 8.0, RabbitMQ 4.1 (management), MLflow v3.4.0; one named volume each; a health check on each; `restart: unless-stopped` (NFR-AVL-02).
+
+**Done-when check.** `docker compose -f deploy/compose.yaml up -d --wait` exited 0 with all four containers `healthy` (about 11 s from a warm image cache).
+
+**Decisions.**
+- Ports bind to `127.0.0.1` only, so nothing is exposed to the network while the databases have no authentication.
+- **Authentication is deferred to P4.1.** NFR-SEC-05 requires auth on the broker and databases in production; the dev stack runs with defaults (RabbitMQ guest on localhost only, Qdrant and Mongo open). Adding it now would mean API-key/credential settings in every client before any client exists. Flagged for the Phase 4 deploy package.
+- Image tags are pinned to specific versions, not `latest`, so benchmark runs are not affected by a silent service upgrade.
+- Qdrant's image has no curl/wget, so its health check opens the port with bash `/dev/tcp`; MLflow's uses Python's urllib against `/health`.
+- MLflow uses SQLite plus artifacts on its volume: enough for a single-developer experiment tracker, and one fewer service than a Postgres backend (Postgres is also on the banned list).
+- Compose file is `deploy/compose.yaml`, per Appendix C (`deploy/`), run with `-f`.
