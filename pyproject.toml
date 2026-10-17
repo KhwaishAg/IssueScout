@@ -1,0 +1,38 @@
+[project]
+name = "issuescout"
+version = "0.1.0"
+description = "GitHub App that points contributors to the code behind an issue."
+authors = [{ name = "Khwaish Agarwal", email = "agarwalakhwaish@gmail.com" }]
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mypy",
+    "pre-commit",
+    "pytest",
+    "ruff",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["integration: needs real services (Qdrant, MongoDB, RabbitMQ)"]

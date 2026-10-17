@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+# secrets: never commit (P0.6)
+.env
+.env.*
+!.env.example
+*.pem
+# local data
+mirrors/
+.embedding_cache/
+mlruns/
