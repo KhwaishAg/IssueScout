@@ -156,9 +156,11 @@ def query(
     as_json: JsonOption = False,
 ) -> None:
     """Print the files and functions most likely related to the text."""
-    if mode not in ("sparse", "dense"):
-        raise typer.BadParameter("must be 'sparse' or 'dense'", param_hint="--mode")
-    search_mode: Literal["sparse", "dense"] = "dense" if mode == "dense" else "sparse"
+    if mode not in ("sparse", "dense", "hybrid"):
+        raise typer.BadParameter("must be 'sparse', 'dense' or 'hybrid'", param_hint="--mode")
+    search_mode: Literal["sparse", "dense", "hybrid"] = (
+        "dense" if mode == "dense" else "hybrid" if mode == "hybrid" else "sparse"
+    )
     settings = get_settings()
     try:
         files = search_files(
@@ -168,7 +170,7 @@ def query(
             index_version=CLI_INDEX_VERSION,
             mode=search_mode,
             settings=settings,
-            encoder=make_encoder(settings) if search_mode == "dense" else None,
+            encoder=make_encoder(settings) if search_mode in ("dense", "hybrid") else None,
         )[:top]
     except Exception as exc:
         typer.echo(f"error: query failed: {type(exc).__name__}: {exc}", err=True)
@@ -294,7 +296,7 @@ def eval_command(
     split: Annotated[str, typer.Option(help="'dev' (tune here) or 'test' (once per freeze).")] = (
         "dev"
     ),
-    config: Annotated[str, typer.Option(help="A0, A1, A2 or 'all'.")] = "all",
+    config: Annotated[str, typer.Option(help="A0 to A3, or all.")] = "all",
     freeze_id: Annotated[
         str | None, typer.Option(help="Name of the frozen configuration; required for 'test'.")
     ] = None,

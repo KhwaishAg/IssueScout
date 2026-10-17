@@ -267,3 +267,32 @@ With 23 instances, one instance is 4.3 points of Recall@10; A0 and A1 differ by 
 - **What the misses say:** template boilerplate and non-code files, not the ranking model, cause half the misses, so the cheapest Phase 2 gains are query building and file filtering, ahead of fancier models.
 
 **Numbers measured.** 7.5 chunks per file overall (13 to 17 for Python-heavy repositories); chunk text mean 0.95 KB; 16% of function-level chunks are split windows; keyword indexing 190 to 590 chunks/s; MiniLM dense indexing 10 to 16 chunks/s; Qwen3-0.6B under 1 chunk/s.
+
+## P1.7 update: the dense baseline A2 ran (2026-10-17)
+
+After disk space was freed, `issuescout eval --split dev --config A2` ran in about 12 minutes of indexing (embeddings were largely cached from the interrupted attempt) and logged MLflow run `8c39e9a0`: Hit@1 0.174, Hit@5 0.478, Recall@10 0.609 (14/23), MRR 0.317, nDCG@10 0.376, function Recall@10 0.333. Model: `all-MiniLM-L6-v2`, provisional. Three baselines are now in MLflow, so P1.7's "done when" and Gate 1 item 1 are met (docs/gate-1.md updated, Gate 1 closed).
+
+## P2.1 Hybrid fusion
+
+**Built.** `search_code` accepts dense, sparse or both; with both it runs two prefetches (50 chunks each, each carrying the repository and version filter) and merges them by reciprocal rank fusion in one Qdrant query, keeping the top 50 fused chunks (`fused_top_k`). A mode switch covers the five modes of FR-RET-04: sparse, dense and hybrid work; `hybrid_rerank` and `full` raise "not built yet" instead of falling back silently. Configuration A3 (hybrid) reuses A2's index: same chunks, same vectors, so no second indexing pass. `issuescout query --mode hybrid` works.
+
+**Done-when evidence.** A3 ran on the dev split and is logged (MLflow run `5035cb01`). 200 tests pass, including four new hybrid tests against real Qdrant (union of both signals, repository isolation in every stage, determinism, fallback to dense when the query has no keywords), and the existing security test still holds because fusion lives inside the single search function.
+
+**Results (dev, 23 instances).**
+
+| Config | Hit@1 | Hit@5 | Recall@10 | MRR | nDCG@10 | function Recall@10 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A0 line windows, keyword | 0.304 | 0.652 | 0.783 | 0.453 | 0.529 | n/a |
+| A1 function chunks, keyword | 0.391 | 0.696 | 0.739 | 0.535 | 0.581 | 0.714 |
+| A2 function chunks, embeddings | 0.174 | 0.478 | 0.609 | 0.317 | 0.376 | 0.333 |
+| A3 A1 + A2 fused (RRF) | 0.261 | 0.739 | **0.913** | 0.467 | 0.571 | 0.714 |
+
+**What fusion did, instance by instance.** It rescued exactly the four instances keyword search missed (pydicom-1139, 1256, 1413 and astroid-1333; the dense signal bridges the vocabulary gap) and lost none. Only sqlfluff-1733 (gold file at rank 18) and sqlfluff-1763 (not retrieved by any configuration) remain. Recall@10 rose from 0.739 to 0.913, +17 points, which is 4 instances of 23. That clears the revised G2 margin (8 points) on dev; dev is the tuning split, so this says the direction is right, not that the test number will match.
+
+**The cost, stated plainly.** Rank-1 hits fell from 9 (A1) to 6 (A3), and MRR from 0.535 to 0.467. Reciprocal rank fusion uses ranks only, so a keyword hit that is clearly best (a large score gap) is treated like a marginal first place and gets pulled down when the dense list disagrees. This is the textbook weakness of RRF and the reason the reranker (P2.2) exists: it rescores the fused list with a model that sees the query and chunk together. If the reranker does not recover top-rank precision, the next options are score-aware fusion or weighting the keyword list.
+
+**Decisions.**
+- Fusion inside one Qdrant query, not in application code: one round trip, and the repository filter is applied to both prefetches by the same function that already enforced it.
+- Prefetch depth 50 per signal (SRS values); fused list truncated to 50 chunks; rerank depth 30 (a later stage) is separate.
+- A3 and A2 share one collection (`index="A2"` on the configuration), so adding a retrieval mode does not duplicate the index. A configuration that changes chunking or vectors gets its own.
+- Hybrid search needs the query encoded by the same model as the index; the model identity is part of the logged parameters.

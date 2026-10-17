@@ -15,7 +15,10 @@ from issuescout.indexing.sparse import sparse_query_vector
 from issuescout.settings import Settings
 from issuescout.storage.qdrant import Hit, QdrantClient, search_code
 
-Mode = Literal["sparse", "dense"]
+# The five retrieval modes of FR-RET-04. The last two arrive with the reranker (P2.2) and
+# history (P2.4); asking for them before then is an explicit error, not a silent fallback.
+Mode = Literal["sparse", "dense", "hybrid", "hybrid_rerank", "full"]
+IMPLEMENTED_MODES = ("sparse", "dense", "hybrid")
 
 
 @dataclass(frozen=True)
@@ -73,29 +76,38 @@ def retrieve_hits(
     exclude_tests: bool = False,
     collection: str | None = None,
 ) -> list[Hit]:
-    """Retrieve chunks with one signal, best first."""
+    """Retrieve chunks in the requested mode, best first.
+
+    ``sparse`` and ``dense`` use one signal, ``hybrid`` fuses both (FR-RET-02). Reranking
+    and history are later stages and are refused until they exist.
+    """
+    if mode not in IMPLEMENTED_MODES:
+        raise NotImplementedError(f"retrieval mode {mode!r} is not built yet")
     collection = collection or settings.qdrant_collection
-    if mode == "dense":
+    dense: list[float] | None = None
+    sparse = None
+    if mode in ("dense", "hybrid"):
         if encoder is None:
-            raise ValueError("dense mode needs an encoder")
-        return search_code(
-            client,
-            repo_id=repo_id,
-            index_version=index_version,
-            dense=[float(x) for x in encoder.encode([query])[0]],
-            limit=settings.dense_top_k,
-            exclude_tests=exclude_tests,
-            collection=collection,
-        )
-    # IDF comes from this repository's own statistics, not from the collection (see
-    # indexing/termstats.py), so the ranking cannot depend on what else is indexed.
-    termstats = load_termstats(settings, client, repo_id, collection)
+            raise ValueError(f"{mode} mode needs an encoder")
+        dense = [float(x) for x in encoder.encode([query])[0]]
+    if mode in ("sparse", "hybrid"):
+        # IDF comes from this repository's own statistics, not from the collection (see
+        # indexing/termstats.py), so the ranking cannot depend on what else is indexed.
+        termstats = load_termstats(settings, client, repo_id, collection)
+        sparse = sparse_query_vector(query, termstats.idf)
+    limit = {
+        "dense": settings.dense_top_k,
+        "sparse": settings.sparse_top_k,
+        "hybrid": settings.fused_top_k,
+    }[mode]
     return search_code(
         client,
         repo_id=repo_id,
         index_version=index_version,
-        sparse=sparse_query_vector(query, termstats.idf),
-        limit=settings.sparse_top_k,
+        dense=dense,
+        sparse=sparse,
+        limit=limit,
+        candidates=max(settings.dense_top_k, settings.sparse_top_k),
         exclude_tests=exclude_tests,
         collection=collection,
     )

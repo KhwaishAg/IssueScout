@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # Retrieval (Appendix B)
     dense_top_k: int = Field(50, gt=0, description="Dense candidates per query")
     sparse_top_k: int = Field(50, gt=0, description="Sparse candidates per query")
+    fused_top_k: int = Field(50, gt=0, description="Chunks kept after fusing dense and sparse")
     rerank_depth: int = Field(30, gt=0, description="Fused candidates passed to the reranker")
     max_files: int = Field(5, gt=0, description="Files shown in a comment")
     max_symbols_per_file: int = Field(3, gt=0, description="Symbols shown per file")
