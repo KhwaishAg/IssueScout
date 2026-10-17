@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,6 +67,7 @@ class Settings(BaseSettings):
 
     # Service endpoints; defaults match the local Docker Compose stack (P0.3).
     qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_collection: str = "code_chunks"  # one collection per ablation configuration
     mongodb_uri: str = "mongodb://127.0.0.1:27017"
     mongodb_database: str = "issuescout"
     rabbitmq_url: str = "amqp://guest:guest@127.0.0.1:5672//"
@@ -77,6 +78,21 @@ class Settings(BaseSettings):
     github_app_id: int | None = None
     github_app_private_key: SecretStr | None = None
     github_webhook_secret: SecretStr | None = None
+
+    # Local state: clones of remote repositories for the CLI.
+    state_dir: Path = Path(".issuescout")
+
+    @field_validator("qdrant_url", "mongodb_uri", "rabbitmq_url", "mlflow_tracking_uri")
+    @classmethod
+    def _use_ipv4_loopback(cls, value: str) -> str:
+        """Rewrite a ``localhost`` host to ``127.0.0.1``.
+
+        On Windows, ``localhost`` resolves to IPv6 first; the services listen on IPv4
+        only, so every new connection waited about a second for the IPv6 attempt to time
+        out before falling back. That made each Qdrant call take about 2 s. The loopback
+        address is the same machine without the delay.
+        """
+        return value.replace("//localhost", "//127.0.0.1").replace("@localhost", "@127.0.0.1")
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"

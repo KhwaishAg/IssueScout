@@ -14,7 +14,10 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from qdrant_client import QdrantClient, models
+# QdrantClient is re-exported so other modules can type against it without importing the
+# qdrant_client package themselves (tests/security enforces that only storage/ does).
+from qdrant_client import QdrantClient as QdrantClient
+from qdrant_client import models
 
 from issuescout.indexing.models import Chunk, ChunkKind
 from issuescout.indexing.sparse import SparseVector
@@ -46,22 +49,30 @@ def make_client(settings: Settings) -> QdrantClient:
     return QdrantClient(url=settings.qdrant_url)
 
 
-def ensure_collection(client: QdrantClient, dense_dim: int, name: str = CODE_COLLECTION) -> None:
-    """Create the collection and its payload indexes if missing; verify the size if present."""
+def ensure_collection(
+    client: QdrantClient, dense_dim: int | None, name: str = CODE_COLLECTION
+) -> None:
+    """Create the collection and its payload indexes if missing; verify the size if present.
+
+    ``dense_dim=None`` makes a sparse-only collection, for baselines that never embed.
+    """
     if client.collection_exists(name):
         params = client.get_collection(name).config.params.vectors
-        existing = params[DENSE].size if isinstance(params, dict) else None
-        if existing != dense_dim:
+        existing = params[DENSE].size if isinstance(params, dict) and DENSE in params else None
+        if dense_dim is not None and existing != dense_dim:
             raise ValueError(
                 f"collection {name!r} has dense size {existing}, expected {dense_dim}; "
                 "the embedding model changed, so re-index into a new collection"
             )
         return
+    dense_config = (
+        {DENSE: models.VectorParams(size=dense_dim, distance=models.Distance.COSINE)}
+        if dense_dim is not None
+        else {}
+    )
     client.create_collection(
         name,
-        vectors_config={
-            DENSE: models.VectorParams(size=dense_dim, distance=models.Distance.COSINE)
-        },
+        vectors_config=dense_config,
         sparse_vectors_config={SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
     )
     # repo_id is the tenant key. It stays an integer as in SRS 6.1, so it gets an exact-match
@@ -105,7 +116,7 @@ def chunk_payload(
 def upsert_chunks(
     client: QdrantClient,
     chunks: Sequence[Chunk],
-    dense: Sequence[Sequence[float]],
+    dense: Sequence[Sequence[float]] | None,
     sparse: Sequence[SparseVector],
     *,
     repo_id: int,
@@ -119,19 +130,22 @@ def upsert_chunks(
 
     Re-running with the same inputs overwrites the same points (FR-IDX-13, TC-06).
     """
-    if not (len(chunks) == len(dense) == len(sparse)):
+    if len(chunks) != len(sparse) or (dense is not None and len(dense) != len(chunks)):
         raise ValueError("chunks, dense and sparse vectors must have equal length")
-    points = [
-        models.PointStruct(
-            id=point_id(repo_id, index_version, chunk),
-            vector={
-                DENSE: [float(x) for x in d],
-                SPARSE: models.SparseVector(indices=list(s[0]), values=list(s[1])),
-            },
-            payload=chunk_payload(chunk, repo_id, installation_id, commit_sha, index_version),
+    points = []
+    for i, chunk in enumerate(chunks):
+        vector: dict[str, models.Vector] = {
+            SPARSE: models.SparseVector(indices=list(sparse[i][0]), values=list(sparse[i][1]))
+        }
+        if dense is not None:
+            vector[DENSE] = [float(x) for x in dense[i]]
+        points.append(
+            models.PointStruct(
+                id=point_id(repo_id, index_version, chunk),
+                vector=vector,
+                payload=chunk_payload(chunk, repo_id, installation_id, commit_sha, index_version),
+            )
         )
-        for chunk, d, s in zip(chunks, dense, sparse, strict=True)
-    ]
     for start in range(0, len(points), batch_size):
         client.upsert(collection, points[start : start + batch_size], wait=True)
     return len(points)
@@ -235,6 +249,38 @@ def count_points(
             models.FieldCondition(key="index_version", match=models.MatchValue(value=index_version))
         )
     return client.count(collection, count_filter=models.Filter(must=must), exact=True).count
+
+
+def delete_stale_points(
+    client: QdrantClient,
+    *,
+    repo_id: int,
+    index_version: int,
+    keep_ids: set[str],
+    collection: str = CODE_COLLECTION,
+) -> int:
+    """Delete this repository version's points whose IDs are not in ``keep_ids``.
+
+    Run after an upsert so chunks that no longer exist (deleted or edited code) disappear
+    and the index equals the working tree. Returns the number removed.
+    """
+    scope = _scope(repo_id, index_version, exclude_tests=False)
+    stale: list[models.ExtendedPointId] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection, scroll_filter=scope, limit=1000, offset=offset, with_payload=False
+        )
+        stale.extend(p.id for p in points if str(p.id) not in keep_ids)
+        if offset is None:
+            break
+    for start in range(0, len(stale), 1000):
+        client.delete(
+            collection,
+            points_selector=models.PointIdsList(points=stale[start : start + 1000]),
+            wait=True,
+        )
+    return len(stale)
 
 
 def delete_repository(

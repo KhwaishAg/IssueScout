@@ -87,3 +87,15 @@ def test_level_filters_debug_lines(capsys: pytest.CaptureFixture[str]) -> None:
     configure_logging("WARNING")
     structlog.get_logger().info("hidden")
     assert capsys.readouterr().out == ""
+
+
+def test_localhost_service_urls_are_rewritten_to_ipv4_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QDRANT_URL", "http://localhost:6333")
+    monkeypatch.setenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672//")
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow.internal:5000")
+    s = _load()
+    assert s.qdrant_url == "http://127.0.0.1:6333"
+    assert s.rabbitmq_url == "amqp://guest:guest@127.0.0.1:5672//"
+    assert s.mlflow_tracking_uri == "http://mlflow.internal:5000"  # real hostnames untouched

@@ -154,3 +154,27 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - `qdrant-client` is pinned to the 1.15 line to match the 1.15.5 server; the newest client (1.19) warns about an unsupported version gap. Bump server and client together.
 
 **Dependencies added.** `qdrant-client` (1.15.x). Not named in the CLAUDE.md list but required to use the fixed-stack Qdrant; flagged here for your veto.
+
+## P1.4 CLI index and query
+
+**Built.** `indexing/pipeline.py` (`index_repository`: select, chunk, embed with cache, upsert, delete stale), `indexing/source.py` (local path or shallow git clone), `retrieval/baseline.py` (`search_files`, `rank_files`), and `issuescout index` / `issuescout query` in the Typer CLI with `--json`, `--sparse-only`, `--chunking ast|lines`, `--mode sparse|dense`, `--top`. New settings: `qdrant_collection` (one collection per ablation configuration) and `state_dir`.
+
+**Done-when evidence (real Qdrant, real model `all-MiniLM-L6-v2`).** `issuescout index src --name issuescout` indexed 15 files into 115 chunks (10 empty files skipped). `issuescout query "the embedding cache should not re-encode unchanged text" --repo issuescout` printed ranked files with symbols and line ranges. Sparse put `indexing/dense.py` first (`embed_texts`, `cache_key`); dense put `indexing/sparse.py` first and `dense.py` second. 140 tests pass in 30 s; integration tests cover index then query, re-index is a no-op, edits and deletions remove stale points, sparse-only and line-window indexes, remote clone and refresh, and the CLI through `CliRunner`.
+
+**Decisions.**
+- **Repo identity is a hash of `--name`** (56-bit, fits Qdrant's int64), so `query --repo NAME` recomputes it with no registry file and no MongoDB driver yet. Cost: two repositories given the same name share an index. Production uses GitHub's numeric repository ID (P3.5).
+- **Local indexing rewrites version 1 in place** and then deletes points not in the new set, so the index equals the tree and re-runs are idempotent. The production path (P3.5) builds a new version and switches on success (FR-IDX-18); in-place is acceptable for a developer's local CLI.
+- **File score = the best chunk's score**, with up to 3 distinct symbols per file (a split function's windows count once). This is the deliberate baseline; the SRS 4.5 formula and history are P2.4 so their gain can be measured.
+- **Sparse-only index = no encoder loaded.** A0 and A1 never touch the 1 GB model, and a sparse-only collection has no dense vector config.
+- **Remote URLs clone shallow into `.issuescout/mirrors`** with `GIT_TERMINAL_PROMPT=0` and an allow-list of protocols; nothing from the repository is executed.
+- **Dense queries embed the raw text.** Some models (including the Qwen3 default) want an instruction prefix on queries; that is a P2.2 model-selection detail.
+- The security scan from P1.3 caught my own new modules importing `qdrant_client`; `QdrantClient` is now re-exported from `storage/` so the rule "only storage touches Qdrant" still holds.
+
+**Bugs and surprises worth remembering.**
+- **A sparse-only index into a brand-new collection crashed** (`VectorParams(size=None)`). My first patch silently missed because Ruff had reflowed that code, and my existing sparse-only test passed only because the shared test collection already had a dense config. Found by running the real CLI; fixed, with a regression test that creates a fresh collection.
+- **`localhost` again.** Indexing 15 files took 27 s because each Qdrant call waited about a second on an IPv6 attempt. The user's `.env`, copied from the earlier `.env.example`, pinned `localhost` and overrode the new default. Settings now rewrite a `localhost` host to `127.0.0.1` for service URLs (4.8 s afterwards), with a test. Lesson: a measured number (27 s for 115 chunks) was the clue; the fix was in configuration, not code.
+- **`configure_logging` captured `sys.stdout` at setup**, so after the test runner closed its stream later log calls crashed. Loggers now look up stdout when created. This would also hit a service that redirects output.
+
+**Numbers.** Dense indexing on this machine: 115 chunks in 64 s including a cold model load (1.8 chunks/s end to end here; the isolated cached-model rate from P1.2 was 16 chunks/s). Sparse-only: 115 chunks in 4.8 s, most of it one-time collection and payload-index creation.
+
+**Dependencies added.** `gitpython` (in the fixed stack).

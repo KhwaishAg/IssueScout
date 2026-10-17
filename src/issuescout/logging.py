@@ -5,7 +5,6 @@ without having it passed through every function signature.
 """
 
 import logging
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -49,6 +48,8 @@ def configure_logging(level: str = "INFO") -> None:
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level)),
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
+        # No file argument: each logger looks up the current sys.stdout when it is created, so
+        # a stream replaced later (a test runner, a redirected service) is never a closed file.
+        logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=False,
     )
