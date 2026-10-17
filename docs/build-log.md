@@ -90,3 +90,27 @@ One entry per work package: what was built, decisions and why, numbers measured.
 **Flag for later.** "Free only" conflicts with the SRS's one 2 vCPU / 8 GB EC2 instance (NFR-CST-01). ADR 0004 lists the options; decide at the Phase 3 gate. Phases 0 to 3 are unaffected.
 
 **Interview notes.** Be ready to defend: why no LangChain (opaque stages vs the ablation), why a function-level chunk (human-navigable unit, fixes are made at function level), why one filtered Qdrant collection (cheap isolation, one audited search function).
+## P1.1 Python chunker
+
+**Built.** `indexing/models.py` (frozen `Chunk` plus a whitespace-normalised SHA-256 `content_hash`), `indexing/tokens.py` (token counter), `indexing/filters.py` (file selection, language and test-file detection), `indexing/chunker.py` (`chunk_file`). Python files go through tree-sitter into function, method, class-header and module chunks with qualified names, signatures, parent symbols and 1-based line ranges. Chunks over 400 tokens split into 400-token windows with 60 tokens of overlap, each carrying the signature. Everything else, and any file with a syntax error, falls back to 60-line windows with 10 lines of overlap.
+
+**Done-when evidence.** 65 tests pass (Ruff, mypy strict clean). TC-03 on the fixture repo: exact (symbol, kind, start, end) set for nested classes, decorators, async, and module code. TC-04: a file with a syntax error yields one line-window chunk and the job continues. TC-05: a function of exactly 1,200 tokens gives 4 windows, each containing the signature, overlapping, covering lines 1 to 399. Also covered: CRLF input gives identical line numbers and hashes, invalid UTF-8 does not crash, parse-timeout fallback, every filter rule, symlinks not followed, deterministic output.
+
+**Eye check on real code** (chunking this project's own `src/`): 53 chunks, boundaries match the function and method edges, decorators are inside their chunk, nested classes get dotted names.
+
+**Decisions.**
+- **Token counter is an approximation** (one token per word or punctuation mark) because the embedding model is not chosen until P2.2. It is injectable; P2.2 swaps in the model tokenizer. Real model counts run higher for code, so chunks will measure larger in model tokens.
+- **Windows snap outward to whole lines**, so a split chunk can exceed 400 tokens by up to a partial line at each end plus the signature. Keeps line ranges exact for permalinks and the text readable. The test bounds this explicitly.
+- **Fallback trigger is `root.has_error`.** tree-sitter recovers from errors, but a recovered tree can hide wrong boundaries, so any error sends the whole file to line windows (FR-IDX-10).
+- **The module chunk holds only leftover top-level code** (imports, constants, `__main__` blocks), not the definitions. Its line range spans first to last leftover, and its text skips the functions in between. `_emit` takes explicit source rows so line numbers stay correct for non-contiguous chunks.
+- **Class attributes are not indexed.** The SRS defines the class chunk as signature, docstring and method list, so `size = 1` in a class body is dropped. Revisit if the Phase 2 error analysis shows misses there.
+- **Functions nested inside functions** stay inside their parent's chunk (no separate chunk).
+- **Secret files are excluded now** (`.env*`, `*.pem`, `*.key`, `id_rsa*`), ahead of TC-20 in P4.3, since it is one table entry. `.env.example` is skipped too, which is the safe direction.
+- **Symlinks are never followed** by `select_files`, so a hostile link cannot read outside the tree (NFR-SEC-11).
+
+**Bugs found and what they cost (interview material).**
+- **py-tree-sitter 0.26 on Windows:** `Point.row` and `.column` return mis-counted references. Rows above 256 come back wrong (399 instead of 398) or crash the interpreter with an access violation. Code reads points by index (`node.end_point[0]`) instead; a comment in `_end_row` explains why. Found by bisecting a crash that only appeared for functions of 300+ lines.
+- **`Parser.parse(..., progress_callback=...)` also crashes** on this build, even with a trivial callback. So the 2-second parse limit (NFR-SEC-12) is checked after the parse, not enforced during it; a slow parse is discarded and the file falls back to line windows. Input size is already capped at 500 KB by the filters. A hard limit comes in P3.5 as a process-level time limit in the worker.
+- Using a node after its `Tree` is garbage-collected is an access violation, so `_chunk_python` holds the tree for the whole walk.
+
+**Dependencies added.** `tree-sitter`, `tree-sitter-python`. The grammar package was not in the CLAUDE.md list; SRS 3.7 names tree-sitter grammars as a dependency, so it was added as part of tree-sitter. Flagged here for your veto.
