@@ -50,7 +50,7 @@ One entry per work package: what was built, decisions and why, numbers measured.
 
 **Verified locally.** Each CI step passes on the current tree; adding a failing test makes pytest exit 1 (the red case), then removed.
 
-**NOT yet verified: the GitHub half of "Done when".** "Green on main, red on a branch with a failing test" needs a GitHub remote. This folder had no remote, so the workflow has not run on GitHub. Outstanding until the repository is pushed (see Gate 0).
+**GitHub half of "Done when" verified (2026-10-17).** Green on main: runs 39024318436 and 39024641638 succeeded. Red on a branch: throwaway branch `ci-red-check` with a failing test, run 39024672140 concluded `failure`; branch deleted. (Originally pending; text below is the earlier note.) **Earlier note:** "Green on main, red on a branch with a failing test" needs a GitHub remote. This folder had no remote, so the workflow has not run on GitHub. Outstanding until the repository is pushed (see Gate 0).
 
 **Decisions.**
 - `uv sync --locked` fails CI if `uv.lock` is out of date, so lock drift cannot reach main.
@@ -69,13 +69,13 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - Tests stub the network probes; only the manual run above touched real services.
 
 **Dependencies added.** `typer`, `httpx` (both in the fixed stack).
-## P0.6 GitHub App setup (repo side done; registration is manual and pending)
+## P0.6 GitHub App setup (done)
 
 **Built.** `github_app_id`, `github_app_private_key`, `github_webhook_secret` in settings (the latter two `SecretStr`, no defaults, masked in repr/dump; 2 tests). `docs/github-app-setup.md`: exact registration steps, the four FR-APP-01 permissions, subscribed events, where secrets live, rotation. `scripts/check_no_secrets.py`: scans every blob in all refs for key blocks, GitHub token formats, webhook-secret assignments, and secret-like file names; prints rule and path, never the match.
 
 **Evidence so far.** Scanner exits 0 on the real history (74 objects) and exits 1 on a throwaway repo with a planted fake key block, so it can fail.
 
-**Still open (user action).** Register the app, generate the key, create and install on the sandbox repository, then rerun the scanner. I did not touch credentials or create anything on GitHub.
+**Closed by the owner (2026-10-17).** App registered and installed on the sandbox repository by Khwaish; `.env` is untracked and ignored; scanner reports 0 problems on 100 objects. I did not touch credentials.
 
 **Decisions.**
 - Secrets arrive only via environment/`.env`; `.gitignore` also blocks `.env*` (except `.env.example`) and `*.pem` as a backstop.
