@@ -6,6 +6,7 @@ debuggable instead of silent.
 
 import fnmatch
 import os
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from pathlib import Path, PurePosixPath
 
@@ -136,8 +137,11 @@ def select_files(
     root: Path,
     settings: Settings,
     exclude_paths: Sequence[str] = (),
+    skipped: Counter[str] | None = None,
 ) -> Iterator[tuple[str, bytes]]:
     """Yield ``(posix_path, content)`` for every indexable file under ``root``.
+
+    If ``skipped`` is given, it counts skipped files by reason (e.g. ``lock_file``).
 
     Repository content is only read as bytes and never executed (NFR-SEC-11). Symlinks
     are not followed, so a hostile link cannot pull in files from outside the tree.
@@ -152,5 +156,8 @@ def select_files(
             size = full.stat().st_size
             with full.open("rb") as fh:
                 head = fh.read(BINARY_SNIFF_BYTES)
-            if skip_reason(rel, head, size, settings, exclude_paths) is None:
+            reason = skip_reason(rel, head, size, settings, exclude_paths)
+            if reason is None:
                 yield rel, full.read_bytes()
+            elif skipped is not None:
+                skipped[reason] += 1

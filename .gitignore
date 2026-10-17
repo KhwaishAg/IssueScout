@@ -17,3 +17,6 @@ dist/
 mirrors/
 .embedding_cache/
 mlruns/
+
+# local state: clones and caches
+.issuescout/

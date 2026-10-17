@@ -6,6 +6,7 @@ authors = [{ name = "Khwaish Agarwal", email = "agarwalakhwaish@gmail.com" }]
 license = "MIT"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "gitpython>=3.2.1",
     "httpx>=0.28.1",
     "pydantic-settings>=2.16.0",
     "qdrant-client>=1.15,<1.16",

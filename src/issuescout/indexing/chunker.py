@@ -47,12 +47,17 @@ def chunk_file(
     source: bytes,
     settings: Settings,
     count: TokenCounter = count_tokens,
+    *,
+    ast: bool = True,
 ) -> list[Chunk]:
-    """Turn one file into chunks. Never raises on bad input."""
+    """Turn one file into chunks. Never raises on bad input.
+
+    ``ast=False`` forces line windows for every file: the A0 baseline in the ablation.
+    """
     text = source.decode("utf-8", errors="replace").replace("\r\n", "\n")
     lines = _split_lines(text)
     language = detect_language(path)
-    if language == "python":
+    if ast and language == "python":
         tree_chunks = _chunk_python(path, text, lines, settings, count)
         if tree_chunks is not None:
             return tree_chunks
