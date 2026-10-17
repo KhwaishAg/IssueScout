@@ -5,7 +5,10 @@ description = "GitHub App that points contributors to the code behind an issue."
 authors = [{ name = "Khwaish Agarwal", email = "agarwalakhwaish@gmail.com" }]
 license = "MIT"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "pydantic-settings>=2.16.0",
+    "structlog>=26.1.0",
+]
 
 [dependency-groups]
 dev = [
@@ -30,6 +33,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
 
 [tool.pytest.ini_options]
