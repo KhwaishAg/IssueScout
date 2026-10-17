@@ -8,7 +8,7 @@ environment and from an ignored ``.env`` file; nothing secret has a default.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     mongodb_database: str = "issuescout"
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672//"
     mlflow_tracking_uri: str = "http://localhost:5000"
+
+    # GitHub App credentials (FR-APP-07/08). No defaults; SecretStr keeps them out of
+    # reprs and logs. Supplied only through the environment or the ignored .env file.
+    github_app_id: int | None = None
+    github_app_private_key: SecretStr | None = None
+    github_webhook_secret: SecretStr | None = None
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
