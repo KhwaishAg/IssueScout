@@ -254,3 +254,16 @@ With 23 instances, one instance is 4.3 points of Recall@10; A0 and A1 differ by 
 **Blocked: A2 needs disk space.** The C: drive reached 100% full (20 MB free). Docker's virtual disk is 30 GB and grew by about 2 GB while indexing the benchmark into Qdrant; it never shrinks on its own. The dense run was paused (it resumes cheaply: embeddings are cached and Qdrant writes are idempotent), and the regenerable benchmark collections were dropped so Docker stops growing. A2 and the P1.7 "three runs in MLflow" check wait on about 1 GB of free space.
 
 **Dependencies added.** `mlflow-skinny==3.4.0` (the MLflow client, matched to the 3.4.0 server in Compose). MLflow is in the fixed stack; the package name is flagged.
+
+## P1.8 Gate 1 review
+
+**Done.** `docs/gate-1.md` holds the checklist with evidence. SRS 6.6 now shows measured values next to the planning estimates (`scripts/measure_volumes.py`). G1 is fixed at 0.85 (NFR-QLT-01), and G2 is revised from 15 to 8 points over the stronger keyword baseline (NFR-QLT-02, AC-03). SRS 5.2 and 6.1 were edited to match the per-repository IDF decision (ADR 0005). Failure patterns from the six A1 misses are written up with the Phase 2 work that addresses each.
+
+**Gate 1 is not fully met.** The dense baseline A2 is missing, by decision: the machine's C: drive reached 100% (Docker's virtual disk is 30 GB and grew during indexing). Rule 4 of CLAUDE.md says to stop at the gate and show the checklist; the owner waived the stop for approval but not the checklist.
+
+**Decisions and why (interview material).**
+- **Why 0.85 and not something derived from the test split:** the test split may be run once per frozen configuration, so using it to set the target would be tuning on it. The target comes from dev: best single baseline 0.78, two-variant union 0.83. It is above both, so it demands a real gain. The weakness is stated: 23 instances in six small repositories, and the test split is dominated by larger repositories.
+- **Why G2 was lowered:** with a keyword baseline near 0.78, a 15-point gain needs 0.93, which no mid-size system reaches on this benchmark. The aim of G2 is "clearly better than keyword search", which a paired bootstrap interval measures directly.
+- **What the misses say:** template boilerplate and non-code files, not the ranking model, cause half the misses, so the cheapest Phase 2 gains are query building and file filtering, ahead of fancier models.
+
+**Numbers measured.** 7.5 chunks per file overall (13 to 17 for Python-heavy repositories); chunk text mean 0.95 KB; 16% of function-level chunks are split windows; keyword indexing 190 to 590 chunks/s; MiniLM dense indexing 10 to 16 chunks/s; Qwen3-0.6B under 1 chunk/s.

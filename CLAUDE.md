@@ -12,8 +12,8 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 
 ## Current status
 
-- Phase: 1 (Baseline)
-- Next package: P1.7 Baseline runs (code done; A2 dense run blocked on disk space) then P1.8
+- Phase: 1 (Baseline), at Gate 1 review (not fully met: A2 dense baseline missing, see docs/gate-1.md)
+- Next package: run A2 when disk space allows, then P2.1 Hybrid fusion
 - Update these two lines whenever a package closes.
 
 ## How we work
