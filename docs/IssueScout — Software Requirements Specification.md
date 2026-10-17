@@ -123,8 +123,8 @@ Commercial coding assistants offer overlapping features. This project's value is
 
 | ID | Goal | Measure |
 | --- | --- | --- |
-| G1 | Retrieve the right files | File-level Recall@10 on the gold set, target 0.70 (provisional, fixed after the Phase 1 baseline) |
-| G2 | Beat keyword search clearly | At least 15 percentage points above the BM25 baseline on Recall@10 |
+| G1 | Retrieve the right files | File-level Recall@10 on the gold set, target 0.85 (fixed at the Phase 1 gate from the dev baselines; see docs/gate-1.md) |
+| G2 | Beat keyword search clearly | At least 8 percentage points above the stronger keyword baseline (A0 or A1) on Recall@10, with a paired bootstrap interval (revised at the Phase 1 gate: the keyword baseline already reaches 0.74 to 0.78 on dev, so 15 points would need 0.93) |
 | G3 | Respond quickly | First comment posted within 30 seconds of the issue opening, at the 95th percentile |
 | G4 | Stay grounded | Answer faithfulness of at least 0.85 on the question set |
 | G5 | Be used | Installed on at least 5 repositories with real issue traffic |
@@ -350,7 +350,7 @@ The stack is Python end to end, built on open-source components, with no overlap
 | Layer | Choice | Why |
 | --- | --- | --- |
 | Dense embeddings | An open-weight code embedding model run with sentence-transformers | Runs locally at no per-call cost; code-trained models retrieve code better than general ones |
-| Sparse encoding | BM25-style term weights with a code-aware tokenizer; IDF applied by Qdrant | Exact identifier matches that dense vectors miss |
+| Sparse encoding | BM25-style term weights with a code-aware tokenizer; IDF computed per repository by the application and folded into the query (ADR 0005) | Exact identifier matches that dense vectors miss |
 | Fusion | Reciprocal rank fusion in Qdrant's query API | Needs no score calibration between the two lists |
 | Reranker | BAAI bge-reranker-v2-m3, with bge-reranker-base as the lighter fallback | Cross-encoders give the largest precision gain per unit of effort |
 | Language model | An open-weight instruct model on Groq through its OpenAI-compatible API | Fast hosted inference with a free plan; the same code runs against Ollama |
@@ -420,7 +420,7 @@ Searchable content lives in Qdrant, and everything else lives in MongoDB. Source
 
 ### 6.1 Qdrant collection: code\_chunks
 
-Each point is one chunk and carries two named vectors: `dense` with cosine distance, and `sparse` with the IDF modifier enabled. The point ID is a UUIDv5 of the repository ID, index version, path, symbol, and content hash, so an unchanged chunk always maps to the same point.
+Each point is one chunk and carries two named vectors: `dense` with cosine distance, and `sparse` holding term-frequency weights only (IDF is applied to the query from per-repository statistics, because Qdrant's collection-wide IDF made one repository's ranking depend on the others; ADR 0005). The point ID is a UUIDv5 of the repository ID, index version, path, symbol, and content hash, so an unchanged chunk always maps to the same point.
 
 | Field | Type | Indexed | Description |
 | --- | --- | --- | --- |
@@ -492,15 +492,17 @@ The repository status field takes one of five values: pending, indexing, ready, 
 
 ### 6.6 Volume estimates
 
-These figures are planning estimates, to be replaced by measurements in Phase 1.
+The planning estimates were replaced by measurements at the Phase 1 gate (2026-10-17). Chunk figures are from the six dev-split repositories at their first benchmark commit (2,886 indexable files); speed figures are from this project's reference development machine (16 CPU cores, no GPU). Details and method are in docs/gate-1.md.
 
-| Quantity | Estimate for a 5,000-file repository |
-| --- | --- |
-| Chunks | About 40,000, at 8 per file |
-| Dense vector storage | About 120 MB at 768 dimensions in 32-bit floats |
-| Payload storage | About 60 MB at 1.5 KB per chunk |
-| Full index time on CPU | 30 to 60 minutes, dominated by embedding |
-| Closed issues indexed | Up to 5,000 most recent |
+| Quantity | Planning estimate (5,000-file repository) | Measured |
+| --- | --- | --- |
+| Chunks | About 40,000, at 8 per file | 7.5 per file over all six repositories (21,651 chunks from 2,886 files). Python-heavy repositories give 13 to 17 per file; sqlfluff, which is mostly YAML and SQL fixtures, gives 2.4. Line windows (A0) give 3.9 per file. 16% of function-level chunks are split windows. |
+| Dense vector storage | About 120 MB at 768 dimensions in 32-bit floats | 4 bytes x dimensions x chunks: 40,000 chunks is 61 MB at 384 dimensions and 123 MB at 768. The estimate holds; on-disk size in Qdrant was not measured because the benchmark indexes had to be dropped to free disk. |
+| Payload storage | About 60 MB at 1.5 KB per chunk | Chunk text averages 0.95 KB (median 0.54, 95th percentile 2.43), so about 1.3 KB per chunk with metadata, or 52 MB per 40,000 chunks. The estimate holds. |
+| Full index time on CPU | 30 to 60 minutes, dominated by embedding | Keyword-only indexing runs at 190 to 590 chunks/s (a 6,800-chunk repository in 12 to 35 s). With all-MiniLM-L6-v2, dense indexing ran at 10 to 16 chunks/s, so 40,000 chunks take roughly 45 to 65 minutes. Qwen3-Embedding-0.6B did not finish 171 chunks in 15 minutes (well under 1 chunk/s), which would be over 11 hours for 40,000. NFR-PERF-06 (12 chunks/s) is therefore met only by small models on this hardware. |
+| Closed issues indexed | Up to 5,000 most recent | Not measured yet (Phase 3). |
+
+Line-window chunks of non-Python files can be much longer than function chunks: the 95th percentile of all function-level-run chunks is 1,500 tokens, mostly 60-line windows of YAML and SQL fixtures, far beyond an embedding model's 512-token limit. Only the start of such a chunk is embedded.
 
 Scalar quantisation of the dense vectors is enabled if memory becomes the limit. It cuts vector memory by about four times at a small cost in recall, which the evaluation will measure.
 
@@ -869,8 +871,8 @@ NFR-PERF-04 decides the reranker. If the larger model misses the budget on CPU, 
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| NFR-QLT-01 | File-level Recall@10 on the SWE-bench Lite test split shall be at least 0.70. This target is provisional until the Phase 1 baseline is measured. | Must |
-| NFR-QLT-02 | The hybrid mode with reranking shall beat the sparse-only baseline by at least 15 percentage points on Recall@10. | Must |
+| NFR-QLT-01 | File-level Recall@10 on the SWE-bench Lite test split shall be at least 0.85. Fixed at the Phase 1 gate from the measured dev baselines (docs/gate-1.md). | Must |
+| NFR-QLT-02 | The hybrid mode with reranking shall beat the stronger keyword baseline (A0 or A1) by at least 8 percentage points on Recall@10, with a paired bootstrap interval. Revised at the Phase 1 gate (docs/gate-1.md). | Must |
 | NFR-QLT-03 | Answer faithfulness on the question set shall be at least 0.85. | Should |
 | NFR-QLT-04 | Every citation in a posted comment shall refer to an item that was in the model's context. | Must |
 | NFR-QLT-05 | Among results labelled high confidence, the top file shall be correct in at least 70% of cases. | Should |
@@ -1319,7 +1321,7 @@ The project is accepted when all 14 criteria below are met, each with evidence t
 | --- | --- | --- | --- |
 | AC-01 | Every Must functional requirement is implemented and its tests pass | CI run on the release commit | 4 |
 | AC-02 | File-level Recall@10 on the SWE-bench Lite test split meets the target fixed at the Phase 1 gate | Evaluation report | 2 |
-| AC-03 | Hybrid retrieval with reranking beats the sparse baseline by at least 15 percentage points on Recall@10 | Ablation table | 2 |
+| AC-03 | Hybrid retrieval with reranking beats the stronger keyword baseline by at least 8 percentage points on Recall@10 | Ablation table | 2 |
 | AC-04 | The CI gate fails on a deliberate regression | CI log of the failing run | 2 |
 | AC-05 | One command reproduces the report from a clean checkout | Fresh-clone run recorded in the README | 2 |
 | AC-06 | Redelivering all webhooks creates no duplicate comment | End-to-end test | 3 |
