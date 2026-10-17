@@ -9,6 +9,7 @@ dependencies = [
     "datasets>=5.1.0",
     "gitpython>=3.2.1",
     "httpx>=0.28.1",
+    "mlflow-skinny==3.4.0",
     "pydantic-settings>=2.16.0",
     "qdrant-client>=1.15,<1.16",
     "sentence-transformers>=6.1.0",

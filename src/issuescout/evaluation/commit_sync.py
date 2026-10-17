@@ -29,8 +29,12 @@ from issuescout.indexing.pipeline import (
     CLI_INDEX_VERSION,
     GROUP_SIZE,
     embed_and_upsert,
+    forget_points,
+    load_termstats,
     repo_id_for_name,
+    termstats_store,
 )
+from issuescout.indexing.termstats import TermStats
 from issuescout.settings import Settings
 from issuescout.storage.qdrant import (
     QdrantClient,
@@ -113,19 +117,21 @@ class CommitIndexer:
         self.mirror.ensure_commit(commit)
         previous = self.indexed_commit()
         entries = {e.path: e for e in self.mirror.list_tree(commit)}
+        termstats = load_termstats(self.settings, self.client, self.repo_id, self.collection)
 
         if previous == commit:
             return SyncStats(commit, "unchanged", seconds=time.perf_counter() - started)
 
         if previous is None:
             stats = SyncStats(commit, "full", files_considered=len(entries))
-            keep = self._index_files(list(entries.values()), commit, stats)
+            keep = self._index_files(list(entries.values()), commit, stats, termstats)
             stats.stale_points_removed = delete_stale_points(
                 self.client,
                 repo_id=self.repo_id,
                 index_version=CLI_INDEX_VERSION,
                 keep_ids=keep,
                 collection=self.collection,
+                on_delete=forget_points(termstats),
             )
         else:
             changes = self.mirror.changed_files(previous, commit)
@@ -138,6 +144,7 @@ class CommitIndexer:
                     index_version=CLI_INDEX_VERSION,
                     paths=gone,
                     collection=self.collection,
+                    on_delete=forget_points(termstats),
                 )
             stats.files_dropped = len(gone)
             to_index = [
@@ -145,8 +152,9 @@ class CommitIndexer:
                 for status, path in changes
                 if status in ("A", "M") and path in entries
             ]
-            self._index_files(to_index, commit, stats)
+            self._index_files(to_index, commit, stats, termstats)
 
+        termstats_store(self.settings).save(self.collection, self.repo_id, termstats)
         self._save(commit)
         stats.seconds = time.perf_counter() - started
         log.info(
@@ -160,7 +168,9 @@ class CommitIndexer:
         )
         return stats
 
-    def _index_files(self, entries: list[TreeEntry], commit: str, stats: SyncStats) -> set[str]:
+    def _index_files(
+        self, entries: list[TreeEntry], commit: str, stats: SyncStats, termstats: TermStats
+    ) -> set[str]:
         """Chunk, encode and write the given files. Returns the point IDs written."""
         keep: set[str] = set()
         candidates = [e for e in entries if skip_reason(e.path, b"", e.size, self.settings) is None]
@@ -185,6 +195,7 @@ class CommitIndexer:
                     repo_id=self.repo_id,
                     commit_sha=commit,
                     collection=self.collection,
+                    termstats=termstats,
                 )
             stats.chunks += len(chunks)
         return keep

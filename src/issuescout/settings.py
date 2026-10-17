@@ -39,8 +39,10 @@ class Settings(BaseSettings):
     window_lines: int = Field(60, gt=0, description="Line-window size for fallback chunking")
     window_overlap_lines: int = Field(10, ge=0, description="Overlap between line windows")
 
-    # Encoders (SRS 4.3 step 7, 5.2). The model is provisional: P2.2 picks it by measurement.
-    embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    # Encoders (SRS 4.3 step 7, 5.2). The model is a provisional baseline: P2.2 picks the real
+    # one by measurement. Qwen3-Embedding-0.6B (an SRS shortlist model) was tried first and
+    # managed well under 1 chunk/s on CPU, so it cannot meet the indexing-speed target here.
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_revision: str | None = None  # pin to a commit hash once P2.2 chooses a model
     embedding_max_seq_length: int = Field(512, gt=0, description="Token cap per chunk")
     dense_batch_size: int = Field(32, gt=0, description="Chunks per encoder batch")

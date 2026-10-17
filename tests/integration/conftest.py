@@ -11,12 +11,15 @@ and every test starts from an empty copy of it (all points deleted), not a new c
 import os
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from qdrant_client import QdrantClient, models
 
+from issuescout.evaluation.gitstore import RepoMirror
 from issuescout.settings import Settings
 from issuescout.storage.qdrant import ensure_collection
+from tests.integration.git_helpers import make_history
 
 TEST_DENSE_DIM = 16
 
@@ -54,3 +57,10 @@ def collection(qdrant_client: QdrantClient, _module_collection: str) -> str:
         wait=True,
     )
     return _module_collection
+
+
+@pytest.fixture
+def history(tmp_path: Path) -> tuple[RepoMirror, list[str]]:
+    """A bare mirror of a three-commit repository, and the commit hashes (oldest first)."""
+    origin, commits = make_history(tmp_path)
+    return RepoMirror.ensure(origin.as_uri(), tmp_path / "mirror.git"), commits

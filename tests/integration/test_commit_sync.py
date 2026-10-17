@@ -1,9 +1,7 @@
 """P1.6: advancing one index from commit to commit, against a synthetic git history."""
 
-import subprocess
 from pathlib import Path
 
-import pytest
 from qdrant_client import QdrantClient
 
 from issuescout.evaluation.commit_sync import CommitIndexer
@@ -20,56 +18,6 @@ from issuescout.settings import Settings
 from issuescout.storage.qdrant import count_points, path_has_points
 
 
-def git(cwd: Path, *args: str) -> str:
-    proc = subprocess.run(
-        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return proc.stdout.strip()
-
-
-def commit(origin: Path, message: str, when: int) -> str:
-    git(origin, "add", "-A")
-    env_date = f"{when} +0000"
-    subprocess.run(
-        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message],
-        cwd=origin,
-        check=True,
-        capture_output=True,
-        env={
-            **__import__("os").environ,
-            "GIT_AUTHOR_DATE": env_date,
-            "GIT_COMMITTER_DATE": env_date,
-        },
-    )
-    return git(origin, "rev-parse", "HEAD")
-
-
-@pytest.fixture
-def history(tmp_path: Path) -> tuple[RepoMirror, list[str]]:
-    """Three commits: add files; modify one, delete one, add one; rename one."""
-    origin = tmp_path / "origin"
-    origin.mkdir()
-    git(origin, "init", "-q", "-b", "main")
-    (origin / "a.py").write_text("def alpha():\n    return 1\n")
-    (origin / "b.py").write_text("def beta():\n    return 2\n")
-    (origin / "uv.lock").write_text("lock\n")
-    c1 = commit(origin, "one", 1_700_000_000)
-
-    (origin / "a.py").write_text("def alpha():\n    return 100\n")
-    (origin / "b.py").unlink()
-    (origin / "c.py").write_text("def gamma():\n    return 3\n")
-    c2 = commit(origin, "two", 1_700_000_100)
-
-    (origin / "c.py").rename(origin / "renamed.py")
-    c3 = commit(origin, "three", 1_700_000_200)
-    mirror = RepoMirror.ensure(origin.as_uri(), tmp_path / "mirror.git")
-    return mirror, [c1, c2, c3]
-
-
 def indexer(
     mirror: RepoMirror,
     client: QdrantClient,
@@ -80,7 +28,7 @@ def indexer(
     return CommitIndexer(
         mirror,
         repo_name=name,
-        settings=Settings(_env_file=None),
+        settings=Settings(_env_file=None, state_dir=tmp_path / "state"),
         client=client,
         encoder=None,
         cache=None,
