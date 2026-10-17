@@ -11,7 +11,7 @@ Two rules are enforced here and nowhere else:
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 # QdrantClient is re-exported so other modules can type against it without importing the
@@ -20,7 +20,7 @@ from qdrant_client import QdrantClient as QdrantClient
 from qdrant_client import models
 
 from issuescout.indexing.models import Chunk, ChunkKind
-from issuescout.indexing.sparse import SparseVector
+from issuescout.indexing.sparse import SparseVector, payload_embedding_text
 from issuescout.settings import Settings
 
 CODE_COLLECTION = "code_chunks"
@@ -73,7 +73,10 @@ def ensure_collection(
     client.create_collection(
         name,
         vectors_config=dense_config,
-        sparse_vectors_config={SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
+        # No IDF modifier: Qdrant would compute IDF over the whole collection, so one
+        # repository's scores would depend on every other repository (and on write history).
+        # IDF is applied to the query instead, from per-repository statistics (termstats.py).
+        sparse_vectors_config={SPARSE: models.SparseVectorParams()},
     )
     # repo_id is the tenant key. It stays an integer as in SRS 6.1, so it gets an exact-match
     # integer index; Qdrant's tenant co-location flag exists only on keyword indexes, which
@@ -216,7 +219,11 @@ def search_code(
             limit=limit,
             with_payload=True,
         )
-    return [_hit(p.score, p.payload or {}) for p in response.points]
+    hits = [_hit(p.score, p.payload or {}) for p in response.points]
+    # Equal scores are common (similar functions) and Qdrant returns ties in an order that
+    # depends on write history. Break them by location so the same index and query always
+    # give the same ranking (FR-RET-12).
+    return sorted(hits, key=lambda h: (-h.score, h.path, h.start_line, h.symbol))
 
 
 def _hit(score: float, payload: dict[str, object]) -> Hit:
@@ -251,6 +258,84 @@ def count_points(
     return client.count(collection, count_filter=models.Filter(must=must), exact=True).count
 
 
+@dataclass(frozen=True)
+class StoredPoint:
+    id: str
+    text: str  # the chunk's embedding text, rebuilt from its payload
+
+
+def _stored(point: models.Record) -> StoredPoint:
+    return StoredPoint(str(point.id), payload_embedding_text(point.payload or {}))
+
+
+_TEXT_FIELDS = ["path", "symbol", "text"]
+
+
+def existing_point_ids(
+    client: QdrantClient, ids: Sequence[str], collection: str = CODE_COLLECTION
+) -> set[str]:
+    """Which of ``ids`` are already in the collection (used to count each chunk once)."""
+    if not ids or not client.collection_exists(collection):
+        return set()
+    found: set[str] = set()
+    for start in range(0, len(ids), 500):
+        batch = list(ids[start : start + 500])
+        found.update(
+            str(p.id)
+            for p in client.retrieve(collection, batch, with_payload=False, with_vectors=False)
+        )
+    return found
+
+
+def fetch_points_by_ids(
+    client: QdrantClient, ids: Sequence[str], collection: str = CODE_COLLECTION
+) -> list[StoredPoint]:
+    out: list[StoredPoint] = []
+    for start in range(0, len(ids), 500):
+        batch = list(ids[start : start + 500])
+        records = client.retrieve(collection, batch, with_payload=_TEXT_FIELDS, with_vectors=False)
+        out.extend(_stored(r) for r in records)
+    return out
+
+
+def fetch_repo_points(
+    client: QdrantClient,
+    *,
+    repo_id: int,
+    index_version: int,
+    paths: Sequence[str] | None = None,
+    collection: str = CODE_COLLECTION,
+) -> list[StoredPoint]:
+    """Text of every chunk of a repository version, or only of the given files."""
+    if not client.collection_exists(collection):
+        return []
+    path_batches: list[Sequence[str] | None] = (
+        [paths[i : i + 500] for i in range(0, len(paths), 500)] if paths is not None else [None]
+    )
+    out: list[StoredPoint] = []
+    for batch in path_batches:
+        scope = _scope(repo_id, index_version, exclude_tests=False)
+        if batch is not None:
+            scope.must = [
+                *(scope.must or []),
+                models.FieldCondition(key="path", match=models.MatchAny(any=list(batch))),
+            ]
+        offset = None
+        while True:
+            records, offset = client.scroll(
+                collection,
+                scroll_filter=scope,
+                limit=1000,
+                offset=offset,
+                with_payload=_TEXT_FIELDS,
+                with_vectors=False,
+            )
+            out.extend(_stored(r) for r in records)
+            if offset is None:
+                break
+    return out
+
+
 def path_has_points(
     client: QdrantClient,
     *,
@@ -275,8 +360,18 @@ def delete_paths(
     index_version: int,
     paths: Sequence[str],
     collection: str = CODE_COLLECTION,
+    on_delete: Callable[[list[StoredPoint]], None] | None = None,
 ) -> None:
-    """Delete every chunk of the given files (deleted or modified in a sync, FR-SYN-03)."""
+    """Delete every chunk of the given files (deleted or modified in a sync, FR-SYN-03).
+
+    ``on_delete`` receives the text of the points about to be removed, so the caller can
+    update the repository's term statistics before they are gone.
+    """
+    if on_delete is not None:
+        doomed = fetch_repo_points(
+            client, repo_id=repo_id, index_version=index_version, paths=paths, collection=collection
+        )
+        on_delete(doomed)
     for start in range(0, len(paths), 500):
         batch = list(paths[start : start + 500])
         scope = _scope(repo_id, index_version, exclude_tests=False)
@@ -294,6 +389,7 @@ def delete_stale_points(
     index_version: int,
     keep_ids: set[str],
     collection: str = CODE_COLLECTION,
+    on_delete: Callable[[list[StoredPoint]], None] | None = None,
 ) -> int:
     """Delete this repository version's points whose IDs are not in ``keep_ids``.
 
@@ -311,11 +407,10 @@ def delete_stale_points(
         if offset is None:
             break
     for start in range(0, len(stale), 1000):
-        client.delete(
-            collection,
-            points_selector=models.PointIdsList(points=stale[start : start + 1000]),
-            wait=True,
-        )
+        batch = stale[start : start + 1000]
+        if on_delete is not None:
+            on_delete(fetch_points_by_ids(client, [str(i) for i in batch], collection))
+        client.delete(collection, points_selector=models.PointIdsList(points=batch), wait=True)
     return len(stale)
 
 

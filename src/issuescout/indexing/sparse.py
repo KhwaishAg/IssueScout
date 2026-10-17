@@ -12,6 +12,7 @@ weights are the term-frequency half of BM25. Qdrant's IDF modifier supplies the 
 import re
 import zlib
 from collections import Counter
+from collections.abc import Callable, Mapping
 
 from issuescout.indexing.models import Chunk
 from issuescout.settings import Settings
@@ -64,10 +65,29 @@ def sparse_document_vector(text: str, settings: Settings) -> SparseVector:
     return ordered, [merged[i] for i in ordered]
 
 
-def sparse_query_vector(text: str) -> SparseVector:
-    """Query terms with weight 1.0 each; repeated words in a query do not count extra."""
+def sparse_query_vector(text: str, idf: Callable[[int], float] | None = None) -> SparseVector:
+    """Query terms weighted by ``idf`` (1.0 each if omitted); repeats do not count extra.
+
+    The weight is the term's IDF in the repository being searched, supplied by the caller
+    from ``TermStats``. Documents hold only the term-frequency half of BM25, so the dot
+    product Qdrant computes is the full BM25 sum.
+    """
     indices = sorted({term_index(t) for t in sparse_tokens(text)})
-    return indices, [1.0] * len(indices)
+    return indices, [idf(i) if idf else 1.0 for i in indices]
+
+
+def document_terms(text: str) -> set[int]:
+    """Distinct term indices of a document: what its sparse vector's indices are."""
+    return {term_index(t) for t in sparse_tokens(text)}
+
+
+def payload_embedding_text(payload: Mapping[str, object]) -> str:
+    """Rebuild a stored chunk's embedding text from its payload (same as ``embedding_text``).
+
+    Used to recover the terms of a point that is about to be deleted, so the repository's
+    document frequencies can be decremented exactly.
+    """
+    return f"{payload['path']}\n{payload['symbol']}\n{payload['text']}"
 
 
 def embedding_text(chunk: Chunk) -> str:

@@ -1,6 +1,7 @@
 """Command-line interface. Exit codes follow SRS 8.6: 0 success, 1 runtime failure, 2 usage."""
 
 import json
+import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -15,6 +16,14 @@ from issuescout.evaluation.prepare import (
     prepare_split,
     walk_split,
     write_instances_json,
+)
+from issuescout.evaluation.runner import RunResult, run_config
+from issuescout.evaluation.tracking import (
+    EvalGuardError,
+    check_test_split_allowed,
+    code_version,
+    find_existing_runs,
+    log_run,
 )
 from issuescout.indexing.dense import DenseEncoder, EmbeddingCache, SentenceTransformerEncoder
 from issuescout.indexing.pipeline import (
@@ -42,6 +51,11 @@ app.add_typer(dataset_app, name="dataset")
 @app.callback()
 def main() -> None:
     """IssueScout command-line tools."""
+    # Windows consoles default to a legacy code page; never crash on a character (MLflow,
+    # for one, prints emoji) just because the terminal cannot show it.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     configure_logging(get_settings().log_level)
 
 
@@ -273,6 +287,94 @@ def dataset_index(
         raise typer.Exit(code=1) from exc
     typer.echo(f"\n{len(prepared)} instances indexed; {len(bad)} with a gold file not in the index")
     raise typer.Exit(code=1 if bad else 0)
+
+
+@app.command("eval")
+def eval_command(
+    split: Annotated[str, typer.Option(help="'dev' (tune here) or 'test' (once per freeze).")] = (
+        "dev"
+    ),
+    config: Annotated[str, typer.Option(help="A0, A1, A2 or 'all'.")] = "all",
+    freeze_id: Annotated[
+        str | None, typer.Option(help="Name of the frozen configuration; required for 'test'.")
+    ] = None,
+    no_log: Annotated[bool, typer.Option("--no-log", help="Do not write to MLflow.")] = False,
+) -> None:
+    """Index a split with each configuration, score every instance, and log to MLflow."""
+    chosen = list(CONFIGS) if config.lower() == "all" else [config.upper()]
+    unknown = [c for c in chosen if c not in CONFIGS]
+    if unknown:
+        raise typer.BadParameter(
+            f"unknown {unknown}; choose from {list(CONFIGS)} or all", param_hint="--config"
+        )
+    split_name = _check_split(split)
+    settings = get_settings()
+    client = make_client(settings)
+    _, dirty = code_version()
+    try:
+        check_runs = split_name == "test" and not no_log
+        existing = find_existing_runs(settings.mlflow_tracking_uri) if check_runs else []
+        for name in chosen:
+            check_test_split_allowed(split_name, name, freeze_id, dirty, existing)
+    except EvalGuardError as exc:
+        typer.echo(f"refused: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    try:
+        prepared = prepare_split(split_name, settings)
+        for name in chosen:
+            cfg = CONFIGS[name]
+            encoder = make_encoder(settings) if cfg.needs_dense else None
+            cache = EmbeddingCache(settings.state_dir / "embeddings") if cfg.needs_dense else None
+            typer.echo(
+                f"\n== {cfg.name}: {cfg.description} ({split_name}, {len(prepared)} instances)"
+            )
+            result = run_config(
+                prepared,
+                settings,
+                config=cfg,
+                split=split_name,
+                client=client,
+                encoder=encoder,
+                cache=cache,
+            )
+            run_id = None
+            if not no_log:
+                run_id = log_run(
+                    result,
+                    settings,
+                    model_id=encoder.model_id if encoder else None,
+                    freeze_id=freeze_id,
+                )
+            _print_run(result, run_id)
+    except Exception as exc:
+        typer.echo(f"error: eval failed: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _print_run(result: RunResult, run_id: str | None) -> None:
+    m, ix, lat = result.metrics, result.indexing, result.latency_ms
+    typer.echo(
+        f"  Hit@1 {m['hit@1']:.3f}  Hit@5 {m['hit@5']:.3f}  Recall@10 {m['recall@10']:.3f}  "
+        f"MRR {m['mrr']:.3f}  nDCG@10 {m['ndcg@10']:.3f}"
+    )
+    if "function_recall@10" in m:
+        typer.echo(
+            f"  function Recall@10 {m['function_recall@10']:.3f} "
+            f"(on {int(m['n_with_gold_functions'])} instances with gold functions)"
+        )
+    typer.echo(
+        f"  search p50 {lat['search_p50']:.0f} ms, p95 {lat['search_p95']:.0f} ms | "
+        f"indexed {int(ix['chunks_indexed'])} chunks in {ix['index_seconds']:.0f}s "
+        f"({ix['chunks_per_second']:.1f}/s), index size mean {ix['index_points_mean']:.0f} "
+        f"max {int(ix['index_points_max'])}"
+    )
+    for repo, rm in result.per_repo.items():
+        typer.echo(
+            f"    {repo:<32} n={int(rm['n_instances'])}  "
+            f"Recall@10 {rm['recall@10']:.3f}  MRR {rm['mrr']:.3f}"
+        )
+    typer.echo(f"  logged to MLflow run {run_id}" if run_id else "  (not logged)")
 
 
 if __name__ == "__main__":

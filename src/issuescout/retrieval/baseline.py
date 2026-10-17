@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from issuescout.indexing.dense import DenseEncoder
+from issuescout.indexing.pipeline import load_termstats
 from issuescout.indexing.sparse import sparse_query_vector
 from issuescout.settings import Settings
 from issuescout.storage.qdrant import Hit, QdrantClient, search_code
@@ -60,6 +61,61 @@ def rank_files(hits: Sequence[Hit], max_symbols: int) -> list[RankedFile]:
     return sorted(ranked, key=lambda f: (-f.score, f.path))
 
 
+def retrieve_hits(
+    query: str,
+    *,
+    client: QdrantClient,
+    repo_id: int,
+    index_version: int,
+    mode: Mode,
+    settings: Settings,
+    encoder: DenseEncoder | None = None,
+    exclude_tests: bool = False,
+    collection: str | None = None,
+) -> list[Hit]:
+    """Retrieve chunks with one signal, best first."""
+    collection = collection or settings.qdrant_collection
+    if mode == "dense":
+        if encoder is None:
+            raise ValueError("dense mode needs an encoder")
+        return search_code(
+            client,
+            repo_id=repo_id,
+            index_version=index_version,
+            dense=[float(x) for x in encoder.encode([query])[0]],
+            limit=settings.dense_top_k,
+            exclude_tests=exclude_tests,
+            collection=collection,
+        )
+    # IDF comes from this repository's own statistics, not from the collection (see
+    # indexing/termstats.py), so the ranking cannot depend on what else is indexed.
+    termstats = load_termstats(settings, client, repo_id, collection)
+    return search_code(
+        client,
+        repo_id=repo_id,
+        index_version=index_version,
+        sparse=sparse_query_vector(query, termstats.idf),
+        limit=settings.sparse_top_k,
+        exclude_tests=exclude_tests,
+        collection=collection,
+    )
+
+
+def rank_functions(hits: Sequence[Hit]) -> list[str]:
+    """``path::symbol`` of each function or method hit, best score first, no repeats.
+
+    Class headers, module chunks and line windows are not functions, so they are skipped.
+    Windows of one split function share a symbol and count once. Same name format as the
+    gold functions of the evaluation, so the two lists compare directly.
+    """
+    ordered = sorted(hits, key=lambda h: (-h.score, h.path, h.start_line))
+    seen: dict[str, None] = {}
+    for h in ordered:
+        if h.kind in ("function", "method"):
+            seen.setdefault(f"{h.path}::{h.symbol}", None)
+    return list(seen)
+
+
 def search_files(
     query: str,
     *,
@@ -73,27 +129,15 @@ def search_files(
     collection: str | None = None,
 ) -> list[RankedFile]:
     """Retrieve chunks with one signal and return ranked files."""
-    collection = collection or settings.qdrant_collection
-    if mode == "dense":
-        if encoder is None:
-            raise ValueError("dense mode needs an encoder")
-        hits = search_code(
-            client,
-            repo_id=repo_id,
-            index_version=index_version,
-            dense=[float(x) for x in encoder.encode([query])[0]],
-            limit=settings.dense_top_k,
-            exclude_tests=exclude_tests,
-            collection=collection,
-        )
-    else:
-        hits = search_code(
-            client,
-            repo_id=repo_id,
-            index_version=index_version,
-            sparse=sparse_query_vector(query),
-            limit=settings.sparse_top_k,
-            exclude_tests=exclude_tests,
-            collection=collection,
-        )
+    hits = retrieve_hits(
+        query,
+        client=client,
+        repo_id=repo_id,
+        index_version=index_version,
+        mode=mode,
+        settings=settings,
+        encoder=encoder,
+        exclude_tests=exclude_tests,
+        collection=collection,
+    )
     return rank_files(hits, settings.max_symbols_per_file)

@@ -223,3 +223,34 @@ By repository for A1: pyvista 6,803, sqlfluff 6,046, pvlib 4,668, pydicom 4,720,
 - The parser ignored a context line that had lost its leading space; found by my own hand-written patch fixture. Blank lines inside a hunk now count as context.
 
 **Dependencies added.** `datasets` (Hugging Face; brings `pyarrow` and `pandas`). It is the Hugging Face tooling named in the tech line but not in the CLAUDE.md fixed-stack list; flagged for your veto. `pyarrow` alone would have been the lighter alternative but needs hand-rolled download code.
+
+## P1.7 Baseline runs (code complete; the dense run A2 is pending, see "Blocked")
+
+**Built.** `evaluation/runner.py` (`run_config`: per-instance query with the issue text, file and function rankings, search latency, index size), `evaluation/tracking.py` (MLflow logging with full parameters, code commit, per-instance and misses artifacts; the test-split rule), `issuescout eval --split --config A0|A1|A2|all [--freeze-id]`. Retrieval now returns chunk hits, from which files and functions are ranked. The test split is refused unless a `--freeze-id` is given, the working tree is clean, and no finished test run exists for that configuration and freeze ID (CLAUDE.md rule 5).
+
+**Results so far (dev split, 23 instances, MLflow experiment `issuescout-retrieval`, per-repository IDF).**
+
+| Config | Hit@1 | Hit@5 | Recall@10 | MRR | nDCG@10 | function Recall@10 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A0 line windows, keyword | 0.304 | 0.652 | 0.783 | 0.453 | 0.529 | n/a |
+| A1 function chunks, keyword | 0.391 | 0.696 | 0.739 | 0.535 | 0.581 | 0.714 (21 instances) |
+| A2 function chunks, embeddings | pending | | | | | |
+
+With 23 instances, one instance is 4.3 points of Recall@10; A0 and A1 differ by one instance on Recall@10 (18 vs 17 of 23). Treat Recall@10 as indistinguishable between them. MRR, Hit@1 and nDCG favour function-level chunks. Search latency p50 about 135 ms, p95 about 500 ms (sparse, local Qdrant, includes loading term statistics). Index size per instance: mean 3,940 chunks (A1), 2,249 (A0). Indexing throughput 190 to 294 chunks/s (sparse only; includes Qdrant writes and term statistics).
+
+**Early gate-review signals.** (a) A plain keyword search already reaches Recall@10 = 0.74 to 0.78 on dev, so goal G2 (hybrid beats the keyword baseline by 15 points) would need about 0.93; the target needs revisiting with a test-split baseline and confidence intervals. (b) Per-repository results are very uneven (pydicom 0.4 to 0.6, pvlib and marshmallow 1.0) and n is 1 to 5 per repository.
+
+**A finding that changed the design (ADR 0005).** The first A0 results moved between identical runs. A controlled experiment showed Qdrant's IDF modifier uses collection-wide, history-dependent statistics: adding an unrelated repository moved a repository's top score from 23.77 to 34.35 and reordered results; delete and re-add of identical content moved it from 23.77 to 23.63. IDF is now computed per repository in `indexing/termstats.py`, folded into the query, and kept exact through every add and delete. After the fix: two identical runs give identical rankings in 23 of 23 instances; a cold rebuild gave 1 of 23 differing once and 0 of 23 on the next run (probable cause: exact score ties at the 50-chunk cut-off). Ties are now broken by path and line. The two A0 and A1 runs logged before the fix were deleted from MLflow as invalid. Regression tests: `tests/integration/test_idf_isolation.py`.
+
+**Another finding: Qwen3-Embedding-0.6B is too slow for CPU indexing.** It did not finish a cold pass over 171 chunks in 15 minutes (well under 1 chunk/s), against the SRS floor of 12 chunks/s (NFR-PERF-06) and about 16 chunks/s measured for `all-MiniLM-L6-v2`. Indexing the dev split densely with it would take more than a day. The baseline A2 therefore uses MiniLM (provisional). This feeds P2.2: the shortlisted models of 137M to 600M parameters will need either a GPU notebook (risk R-02) or a smaller model.
+
+**Decisions.**
+- The query is the raw problem statement for every configuration; the query builder is P2.3. Dense queries are truncated by the model's maximum length (FR-RET-10 is P2.3).
+- Function-level recall is omitted for A0 (line windows have no function chunks). Reporting 0.0 would be wrong rather than conservative.
+- A test-split run is keyed by an explicit `--freeze-id`, not by commit hash, so committing a small tweak cannot reopen the test split.
+- MLflow metric names cannot contain `@`; `recall@10` is logged as `recall_at_10`.
+- Windows consoles use a legacy code page and MLflow prints emoji; the CLI now reconfigures stdout and stderr to never crash on a character.
+
+**Blocked: A2 needs disk space.** The C: drive reached 100% full (20 MB free). Docker's virtual disk is 30 GB and grew by about 2 GB while indexing the benchmark into Qdrant; it never shrinks on its own. The dense run was paused (it resumes cheaply: embeddings are cached and Qdrant writes are idempotent), and the regenerable benchmark collections were dropped so Docker stops growing. A2 and the P1.7 "three runs in MLflow" check wait on about 1 GB of free space.
+
+**Dependencies added.** `mlflow-skinny==3.4.0` (the MLflow client, matched to the 3.4.0 server in Compose). MLflow is in the fixed stack; the package name is flagged.

@@ -9,7 +9,7 @@ removes the stale ones, so the index always equals the tree. The production path
 import hashlib
 import time
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,12 +20,17 @@ from issuescout.indexing.chunker import chunk_file
 from issuescout.indexing.dense import DenseEncoder, EmbeddingCache, embed_texts
 from issuescout.indexing.filters import select_files
 from issuescout.indexing.models import Chunk
-from issuescout.indexing.sparse import embedding_text, sparse_document_vector
+from issuescout.indexing.sparse import document_terms, embedding_text, sparse_document_vector
+from issuescout.indexing.termstats import TermStats, TermStatsStore
 from issuescout.settings import Settings
 from issuescout.storage.qdrant import (
     QdrantClient,
+    StoredPoint,
+    count_points,
     delete_stale_points,
     ensure_collection,
+    existing_point_ids,
+    fetch_repo_points,
     point_id,
     upsert_chunks,
 )
@@ -74,6 +79,54 @@ def _grouped(items: list[Chunk], size: int) -> Iterator[list[Chunk]]:
         yield items[start : start + size]
 
 
+def termstats_store(settings: Settings) -> TermStatsStore:
+    return TermStatsStore(settings.state_dir / "termstats")
+
+
+def rebuild_termstats(client: QdrantClient, repo_id: int, collection: str) -> TermStats:
+    """Recompute a repository's term statistics from the chunks actually in the index."""
+    stats = TermStats()
+    for point in fetch_repo_points(
+        client, repo_id=repo_id, index_version=CLI_INDEX_VERSION, collection=collection
+    ):
+        stats.add(document_terms(point.text))
+    return stats
+
+
+def load_termstats(
+    settings: Settings, client: QdrantClient, repo_id: int, collection: str
+) -> TermStats:
+    """Stored statistics, rebuilt from the index if they no longer match it.
+
+    The saved file and the vector store are updated by separate writes, so a crash can
+    leave them apart. The check is the number of chunks: if it differs, trust the index.
+    """
+    store = termstats_store(settings)
+    stats = store.load(collection, repo_id)
+    live = (
+        count_points(
+            client, repo_id=repo_id, index_version=CLI_INDEX_VERSION, collection=collection
+        )
+        if client.collection_exists(collection)
+        else 0
+    )
+    if stats.n_docs != live:
+        log.warning("termstats_rebuilt", repo_id=repo_id, stored=stats.n_docs, live=live)
+        stats = rebuild_termstats(client, repo_id, collection)
+        store.save(collection, repo_id, stats)
+    return stats
+
+
+def forget_points(stats: TermStats) -> Callable[[list[StoredPoint]], None]:
+    """A callback for ``on_delete``: remove deleted points' terms from ``stats``."""
+
+    def callback(points: list[StoredPoint]) -> None:
+        for point in points:
+            stats.remove(document_terms(point.text))
+
+    return callback
+
+
 def embed_and_upsert(
     chunks: list[Chunk],
     *,
@@ -84,8 +137,12 @@ def embed_and_upsert(
     repo_id: int,
     commit_sha: str,
     collection: str,
+    termstats: TermStats | None = None,
 ) -> set[str]:
     """Encode a group of chunks and write them. Returns the point IDs written.
+
+    If ``termstats`` is given it is updated for every chunk that is new to the index, and
+    only those: re-writing an existing point must not count its terms twice.
 
     Shared by the local CLI index and the benchmark's commit-to-commit sync, so both
     build identical points from identical chunks.
@@ -96,6 +153,13 @@ def embed_and_upsert(
         if cache is None:
             raise ValueError("a dense encoder needs an embedding cache")
         dense = [v.tolist() for v in embed_texts(texts, encoder, cache, settings.dense_batch_size)]
+    ids = [point_id(repo_id, CLI_INDEX_VERSION, c) for c in chunks]
+    new_terms: dict[str, set[int]] = {}
+    if termstats is not None:
+        already = existing_point_ids(client, list(dict.fromkeys(ids)), collection)
+        for point, text in zip(ids, texts, strict=True):
+            if point not in already and point not in new_terms:
+                new_terms[point] = document_terms(text)
     ensure_collection(client, len(dense[0]) if dense else None, collection)
     upsert_chunks(
         client,
@@ -108,7 +172,10 @@ def embed_and_upsert(
         index_version=CLI_INDEX_VERSION,
         collection=collection,
     )
-    return {point_id(repo_id, CLI_INDEX_VERSION, c) for c in chunks}
+    if termstats is not None:
+        for terms in new_terms.values():
+            termstats.add(terms)
+    return set(ids)
 
 
 def index_repository(
@@ -138,6 +205,7 @@ def index_repository(
     hits_before = cache.hits if cache else 0
     misses_before = cache.misses if cache else 0
 
+    termstats = load_termstats(settings, client, repo_id, collection)
     keep: set[str] = set()
     for group in _grouped(chunks, GROUP_SIZE):
         keep |= embed_and_upsert(
@@ -149,6 +217,7 @@ def index_repository(
             repo_id=repo_id,
             commit_sha=stats.commit_sha,
             collection=collection,
+            termstats=termstats,
         )
     stats.chunks = len(chunks)
 
@@ -159,7 +228,9 @@ def index_repository(
             index_version=CLI_INDEX_VERSION,
             keep_ids=keep,
             collection=collection,
+            on_delete=forget_points(termstats),
         )
+    termstats_store(settings).save(collection, repo_id, termstats)
     if cache is not None:
         stats.embed_cache_hits = cache.hits - hits_before
         stats.embed_cache_misses = cache.misses - misses_before
