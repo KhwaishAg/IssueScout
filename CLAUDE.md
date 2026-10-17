@@ -13,7 +13,7 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 ## Current status
 
 - Phase: 1 (Baseline)
-- Next package: P1.6 SWE-bench Lite loader
+- Next package: P1.7 Baseline runs
 - Update these two lines whenever a package closes.
 
 ## How we work

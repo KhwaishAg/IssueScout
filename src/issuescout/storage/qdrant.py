@@ -251,6 +251,42 @@ def count_points(
     return client.count(collection, count_filter=models.Filter(must=must), exact=True).count
 
 
+def path_has_points(
+    client: QdrantClient,
+    *,
+    repo_id: int,
+    index_version: int,
+    path: str,
+    collection: str = CODE_COLLECTION,
+) -> bool:
+    """True if the index holds at least one chunk of ``path`` for this repository version."""
+    scope = _scope(repo_id, index_version, exclude_tests=False)
+    scope.must = [
+        *(scope.must or []),
+        models.FieldCondition(key="path", match=models.MatchValue(value=path)),
+    ]
+    return client.count(collection, count_filter=scope, exact=True).count > 0
+
+
+def delete_paths(
+    client: QdrantClient,
+    *,
+    repo_id: int,
+    index_version: int,
+    paths: Sequence[str],
+    collection: str = CODE_COLLECTION,
+) -> None:
+    """Delete every chunk of the given files (deleted or modified in a sync, FR-SYN-03)."""
+    for start in range(0, len(paths), 500):
+        batch = list(paths[start : start + 500])
+        scope = _scope(repo_id, index_version, exclude_tests=False)
+        scope.must = [
+            *(scope.must or []),
+            models.FieldCondition(key="path", match=models.MatchAny(any=batch)),
+        ]
+        client.delete(collection, points_selector=models.FilterSelector(filter=scope), wait=True)
+
+
 def delete_stale_points(
     client: QdrantClient,
     *,

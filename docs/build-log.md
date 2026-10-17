@@ -190,3 +190,36 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - **Empty gold raises** rather than scoring 0 or 1. An instance without a gold file is a loader bug (SWE-bench Lite instances all have one), and a silent score would hide it in the averages.
 - **Binary relevance** for nDCG, which is what a gold file set gives. Graded core/supporting weights (FR-EVL-15) can extend this later.
 - **Recall divides by the number of distinct gold items**, not by `k`, so it measures coverage of the answer rather than list length.
+
+## P1.6 SWE-bench Lite loader
+
+**Built.** `evaluation/swebench.py` (load both splits from Hugging Face; gold files and gold functions from the reference patch), `evaluation/gitstore.py` (bare mirrors, reading files at any commit straight from git objects), `evaluation/commit_sync.py` (`CommitIndexer`: advance one index per repository from commit to commit), `evaluation/prepare.py` (ordering, gold verification, `walk_split`), `evaluation/configs.py` (ablation presets A0 to A2, one Qdrant collection each). CLI: `issuescout dataset prepare` and `issuescout dataset index --config A0|A1|A2`. Gold labels for the dev split are committed in `eval/instances_dev.json`.
+
+**Done-when evidence (real data, 2026-10-17).** `dataset prepare --split dev`: 23 instances over 6 repositories, **0 with a missing gold file at the base commit**. `dataset index --split dev --config A1`: all 23 indexed, **0 with a gold file absent from the index**, 6 full builds plus 17 incremental syncs, 2 min 20 s total. Same result for A0. 176 tests pass.
+
+**Measured volume (these replace SRS 6.6 estimates; dev split, six repos).**
+
+| Config | Chunks | Note |
+| --- | --- | --- |
+| A0 line windows | 15,126 | 60-line windows, 10 overlap |
+| A1 function-level | 27,181 | about 1.8x A0 |
+
+By repository for A1: pyvista 6,803, sqlfluff 6,046, pvlib 4,668, pydicom 4,720, astroid 3,661, marshmallow 1,283. The SRS assumed about 8 chunks per file; the dev repositories land at roughly 6 to 20 per source file depending on how much is data and docs. Sparse-only indexing ran at about 580 chunks/s for a full build (pyvista: 522 files, 6,803 chunks, 11.7 s). Dense indexing is the expensive part and is measured in P1.7. Disk: the six bare mirrors total 730 MB.
+
+**Gold labels.** 21 of 23 instances have gold functions; the other two change module-level code (pydicom-1139, astroid-1268) and are scored on files only. Every instance has exactly one gold file (SWE-bench Lite's selection rule).
+
+**Decisions.**
+- **Read git objects instead of checking out.** `git ls-tree` and `git cat-file --batch` give every file at a commit without writing untrusted files to disk, and are fast. A checkout per instance would also have broken the incremental idea.
+- **One living index per repository, advanced in commit order.** Instances are ordered by the base commit's committer time (not by instance ID or issue date). `git diff --name-status --no-renames` lists changes; only added and modified files are re-chunked; points of modified and deleted files are removed first. A rename is a delete plus an add (FR-SYN-04).
+- **The defining test:** an index advanced through three commits equals a full index of the last commit (same paths, symbols, line ranges, point counts). A wiped collection forces a full rebuild instead of a silent partial index; the resume state file is checked against the store.
+- **Changed lines, not hunk ranges, define gold functions.** SRS 10.2 says functions "that overlap the patch". A hunk's range includes three lines of context on each side, which would drag in neighbouring functions. Only removed lines count; a pure insertion is attributed to the line just before it, so an added line inside a function belongs to that function.
+- **Gold function names use the chunker's own symbols** (`src/marshmallow/schema.py::src.marshmallow.schema.BaseSchema._invoke_field_validators`), so a gold name is exactly a name the retriever can return. They include the path-derived module prefix (`src.`), which differs from the Python import path; consistent everywhere, so harmless.
+- **Dense indexing is not part of this package's check.** "Indexed" is proved with the sparse indexes A0 and A1; A2 needs the embedding model and runs in P1.7 through the same walk.
+- **Test-split clones are not downloaded yet.** Disk is at 97% with 9.5 GB free; the test split's 12 repositories (django, sympy, matplotlib, scikit-learn and others) are several GB. `dataset prepare --split test` does it explicitly, and it is not needed until P2.6.
+
+**Bugs found while doing it.**
+- Mirror clones nested inside themselves (`.issuescout/swebench/.issuescout/swebench/...`): git ran with `cwd` set to the parent directory while the destination was a relative path. Fixed by resolving to an absolute path; found because the first real run failed with a Windows directory error.
+- The diff parser treated a removed SQL comment (`-- text`, shown as `--- text`) as a file header. A header now needs `---`, `+++` and `@@` lines in a row (sqlfluff, one of the six repositories, is full of SQL). Test included.
+- The parser ignored a context line that had lost its leading space; found by my own hand-written patch fixture. Blank lines inside a hunk now count as context.
+
+**Dependencies added.** `datasets` (Hugging Face; brings `pyarrow` and `pandas`). It is the Hugging Face tooling named in the tech line but not in the CLAUDE.md fixed-stack list; flagged for your veto. `pyarrow` alone would have been the lighter alternative but needs hand-rolled download code.

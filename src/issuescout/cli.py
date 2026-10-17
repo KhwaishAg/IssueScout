@@ -1,11 +1,21 @@
 """Command-line interface. Exit codes follow SRS 8.6: 0 success, 1 runtime failure, 2 usage."""
 
 import json
+from pathlib import Path
 from typing import Annotated, Literal
 
 import typer
 
 from issuescout.doctor import all_reachable, run_checks
+from issuescout.evaluation.commit_sync import SyncStats
+from issuescout.evaluation.configs import CONFIGS
+from issuescout.evaluation.prepare import (
+    PreparedInstance,
+    gold_files_indexed,
+    prepare_split,
+    walk_split,
+    write_instances_json,
+)
 from issuescout.indexing.dense import DenseEncoder, EmbeddingCache, SentenceTransformerEncoder
 from issuescout.indexing.pipeline import (
     CLI_INDEX_VERSION,
@@ -22,6 +32,11 @@ from issuescout.storage.qdrant import make_client
 app = typer.Typer(help="IssueScout: find the code behind an issue.", no_args_is_help=True)
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Machine-readable output.")]
+
+dataset_app = typer.Typer(
+    help="SWE-bench Lite: prepare and index the evaluation data.", no_args_is_help=True
+)
+app.add_typer(dataset_app, name="dataset")
 
 
 @app.callback()
@@ -176,6 +191,88 @@ def _print_files(files: list[RankedFile], repo: str, as_json: bool) -> None:
         typer.echo(f"{i:>2}. {f.path}  (score {f.score:.3f})")
         for s in f.symbols:
             typer.echo(f"      {s.symbol}  L{s.start_line}-{s.end_line}  [{s.kind}]")
+
+
+def _check_split(split: str) -> Literal["dev", "test"]:
+    if split not in ("dev", "test"):
+        raise typer.BadParameter("must be 'dev' or 'test'", param_hint="--split")
+    return "dev" if split == "dev" else "test"
+
+
+@dataset_app.command("prepare")
+def dataset_prepare(
+    split: Annotated[str, typer.Option(help="'dev' (23 instances) or 'test' (300).")] = "dev",
+    out: Annotated[Path | None, typer.Option(help="Write gold labels to this JSON file.")] = None,
+) -> None:
+    """Download a split, clone its repositories, order instances by commit, verify gold files."""
+    settings = get_settings()
+    try:
+        prepared = prepare_split(_check_split(split), settings)
+    except Exception as exc:
+        typer.echo(f"error: prepare failed: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    missing = [p for p in prepared if not p.gold_files_present]
+    current = ""
+    for p in prepared:
+        if p.instance.repo != current:
+            current = p.instance.repo
+            typer.echo(f"\n{current}")
+        funcs = len(p.instance.gold_functions)
+        ok = "ok" if p.gold_files_present else "GOLD FILE MISSING"
+        typer.echo(
+            f"  {p.order + 1:>2}. {p.instance.instance_id:<40} {p.instance.base_commit[:9]}  "
+            f"gold files {len(p.instance.gold_files)}, functions {funcs}  [{ok}]"
+        )
+    typer.echo(f"\n{len(prepared)} instances; {len(missing)} with a missing gold file")
+    if out is not None:
+        write_instances_json(prepared, out)
+        typer.echo(f"wrote {out}")
+    raise typer.Exit(code=1 if missing else 0)
+
+
+@dataset_app.command("index")
+def dataset_index(
+    split: Annotated[str, typer.Option(help="'dev' or 'test'.")] = "dev",
+    config: Annotated[str, typer.Option(help="Ablation configuration: A0, A1 or A2.")] = "A1",
+) -> None:
+    """Index every instance of a split, one repository advancing commit by commit."""
+    name = config.upper()
+    if name not in CONFIGS:
+        raise typer.BadParameter(f"choose one of {', '.join(CONFIGS)}", param_hint="--config")
+    cfg = CONFIGS[name]
+    settings = get_settings()
+    client = make_client(settings)
+    encoder = make_encoder(settings) if cfg.needs_dense else None
+    cache = EmbeddingCache(settings.state_dir / "embeddings") if cfg.needs_dense else None
+    bad: list[str] = []
+
+    def visit(item: PreparedInstance, stats: SyncStats) -> None:
+        ok = gold_files_indexed(item, client, cfg.collection)
+        if not ok:
+            bad.append(item.instance.instance_id)
+        verdict = "yes" if ok else "NO"
+        typer.echo(
+            f"  {item.instance.instance_id:<40} {stats.mode:<11} files {stats.files_indexed:>5} "
+            f"chunks {stats.chunks:>6}  {stats.seconds:>6.1f}s  gold indexed: {verdict}"
+        )
+
+    try:
+        prepared = prepare_split(_check_split(split), settings)
+        typer.echo(f"config {cfg.name}: {cfg.description} -> collection {cfg.collection}")
+        walk_split(
+            prepared,
+            settings,
+            config=cfg,
+            client=client,
+            encoder=encoder,
+            cache=cache,
+            visit=visit,
+        )
+    except Exception as exc:
+        typer.echo(f"error: dataset index failed: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"\n{len(prepared)} instances indexed; {len(bad)} with a gold file not in the index")
+    raise typer.Exit(code=1 if bad else 0)
 
 
 if __name__ == "__main__":

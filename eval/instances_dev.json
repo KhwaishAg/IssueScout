@@ -1,0 +1,298 @@
+[
+  {
+    "instance_id": "marshmallow-code__marshmallow-1343",
+    "repo": "marshmallow-code/marshmallow",
+    "base_commit": "2be2d83a1a9a6d3d9b85804f3ab545cecc409bb0",
+    "created_at": "2019-08-13T04:36:01Z",
+    "order_in_repo": 0,
+    "gold_files": [
+      "src/marshmallow/schema.py"
+    ],
+    "gold_functions": [
+      "src/marshmallow/schema.py::src.marshmallow.schema.BaseSchema._invoke_field_validators"
+    ]
+  },
+  {
+    "instance_id": "marshmallow-code__marshmallow-1359",
+    "repo": "marshmallow-code/marshmallow",
+    "base_commit": "b40a0f4e33823e6d0f341f7e8684e359a99060d1",
+    "created_at": "2019-08-21T15:45:13Z",
+    "order_in_repo": 1,
+    "gold_files": [
+      "src/marshmallow/fields.py"
+    ],
+    "gold_functions": [
+      "src/marshmallow/fields.py::src.marshmallow.fields.DateTime._bind_to_schema"
+    ]
+  },
+  {
+    "instance_id": "pvlib__pvlib-python-1072",
+    "repo": "pvlib/pvlib-python",
+    "base_commit": "04a523fafbd61bc2e49420963b84ed8e2bd1b3cf",
+    "created_at": "2020-10-01T00:53:14Z",
+    "order_in_repo": 0,
+    "gold_files": [
+      "pvlib/temperature.py"
+    ],
+    "gold_functions": [
+      "pvlib/temperature.py::pvlib.temperature.fuentes"
+    ]
+  },
+  {
+    "instance_id": "pvlib__pvlib-python-1154",
+    "repo": "pvlib/pvlib-python",
+    "base_commit": "0b8f24c265d76320067a5ee908a57d475cd1bb24",
+    "created_at": "2021-01-29T20:53:24Z",
+    "order_in_repo": 1,
+    "gold_files": [
+      "pvlib/irradiance.py"
+    ],
+    "gold_functions": [
+      "pvlib/irradiance.py::pvlib.irradiance.reindl"
+    ]
+  },
+  {
+    "instance_id": "pvlib__pvlib-python-1606",
+    "repo": "pvlib/pvlib-python",
+    "base_commit": "c78b50f4337ecbe536a961336ca91a1176efc0e8",
+    "created_at": "2022-12-07T21:12:08Z",
+    "order_in_repo": 2,
+    "gold_files": [
+      "pvlib/tools.py"
+    ],
+    "gold_functions": [
+      "pvlib/tools.py::pvlib.tools._golden_sect_DataFrame"
+    ]
+  },
+  {
+    "instance_id": "pvlib__pvlib-python-1707",
+    "repo": "pvlib/pvlib-python",
+    "base_commit": "40e9e978c170bdde4eeee1547729417665dbc34c",
+    "created_at": "2023-03-24T10:46:42Z",
+    "order_in_repo": 3,
+    "gold_files": [
+      "pvlib/iam.py"
+    ],
+    "gold_functions": [
+      "pvlib/iam.py::pvlib.iam.physical"
+    ]
+  },
+  {
+    "instance_id": "pvlib__pvlib-python-1854",
+    "repo": "pvlib/pvlib-python",
+    "base_commit": "27a3a07ebc84b11014d3753e4923902adf9a38c0",
+    "created_at": "2023-09-13T17:25:47Z",
+    "order_in_repo": 4,
+    "gold_files": [
+      "pvlib/pvsystem.py"
+    ],
+    "gold_functions": [
+      "pvlib/pvsystem.py::pvlib.pvsystem.PVSystem.__init__"
+    ]
+  },
+  {
+    "instance_id": "pydicom__pydicom-901",
+    "repo": "pydicom/pydicom",
+    "base_commit": "3746878d8edf1cbda6fbcf35eec69f9ba79301ca",
+    "created_at": "2019-07-27T00:18:11Z",
+    "order_in_repo": 0,
+    "gold_files": [
+      "pydicom/config.py"
+    ],
+    "gold_functions": [
+      "pydicom/config.py::pydicom.config.debug"
+    ]
+  },
+  {
+    "instance_id": "pydicom__pydicom-1139",
+    "repo": "pydicom/pydicom",
+    "base_commit": "b9fb05c177b685bf683f7f57b2d57374eb7d882d",
+    "created_at": "2020-06-26T11:47:17Z",
+    "order_in_repo": 1,
+    "gold_files": [
+      "pydicom/valuerep.py"
+    ],
+    "gold_functions": []
+  },
+  {
+    "instance_id": "pydicom__pydicom-1256",
+    "repo": "pydicom/pydicom",
+    "base_commit": "49a3da4a3d9c24d7e8427a25048a1c7d5c4f7724",
+    "created_at": "2020-11-04T21:13:33Z",
+    "order_in_repo": 2,
+    "gold_files": [
+      "pydicom/jsonrep.py"
+    ],
+    "gold_functions": [
+      "pydicom/jsonrep.py::pydicom.jsonrep.JsonDataElementConverter.get_sequence_item"
+    ]
+  },
+  {
+    "instance_id": "pydicom__pydicom-1413",
+    "repo": "pydicom/pydicom",
+    "base_commit": "f909c76e31f759246cec3708dadd173c5d6e84b1",
+    "created_at": "2021-06-16T09:47:08Z",
+    "order_in_repo": 3,
+    "gold_files": [
+      "pydicom/dataelem.py"
+    ],
+    "gold_functions": [
+      "pydicom/dataelem.py::pydicom.dataelem.DataElement.value"
+    ]
+  },
+  {
+    "instance_id": "pydicom__pydicom-1694",
+    "repo": "pydicom/pydicom",
+    "base_commit": "f8cf45b6c121e5a4bf4a43f71aba3bc64af3db9c",
+    "created_at": "2022-09-20T18:52:53Z",
+    "order_in_repo": 4,
+    "gold_files": [
+      "pydicom/dataset.py"
+    ],
+    "gold_functions": [
+      "pydicom/dataset.py::pydicom.dataset.Dataset.to_json_dict"
+    ]
+  },
+  {
+    "instance_id": "pylint-dev__astroid-1268",
+    "repo": "pylint-dev/astroid",
+    "base_commit": "ce5cbce5ba11cdc2f8139ade66feea1e181a7944",
+    "created_at": "2021-11-21T16:15:23Z",
+    "order_in_repo": 0,
+    "gold_files": [
+      "astroid/nodes/as_string.py"
+    ],
+    "gold_functions": []
+  },
+  {
+    "instance_id": "pylint-dev__astroid-1333",
+    "repo": "pylint-dev/astroid",
+    "base_commit": "d2a5b3c7b1e203fec3c7ca73c30eb1785d3d4d0a",
+    "created_at": "2022-01-08T19:36:45Z",
+    "order_in_repo": 1,
+    "gold_files": [
+      "astroid/modutils.py"
+    ],
+    "gold_functions": [
+      "astroid/modutils.py::astroid.modutils._get_relative_base_path",
+      "astroid/modutils.py::astroid.modutils.modpath_from_file_with_callback"
+    ]
+  },
+  {
+    "instance_id": "pylint-dev__astroid-1196",
+    "repo": "pylint-dev/astroid",
+    "base_commit": "39c2a9805970ca57093d32bbaf0e6a63e05041d8",
+    "created_at": "2021-10-03T15:58:07Z",
+    "order_in_repo": 2,
+    "gold_files": [
+      "astroid/nodes/node_classes.py"
+    ],
+    "gold_functions": [
+      "astroid/nodes/node_classes.py::astroid.nodes.node_classes.Dict.getitem"
+    ]
+  },
+  {
+    "instance_id": "pylint-dev__astroid-1866",
+    "repo": "pylint-dev/astroid",
+    "base_commit": "6cf238d089cf4b6753c94cfc089b4a47487711e5",
+    "created_at": "2022-11-12T19:21:34Z",
+    "order_in_repo": 3,
+    "gold_files": [
+      "astroid/brain/brain_builtin_inference.py"
+    ],
+    "gold_functions": [
+      "astroid/brain/brain_builtin_inference.py::astroid.brain.brain_builtin_inference._infer_str_format_call"
+    ]
+  },
+  {
+    "instance_id": "pylint-dev__astroid-1978",
+    "repo": "pylint-dev/astroid",
+    "base_commit": "0c9ab0fe56703fa83c73e514a1020d398d23fa7f",
+    "created_at": "2023-01-28T06:14:39Z",
+    "order_in_repo": 4,
+    "gold_files": [
+      "astroid/raw_building.py"
+    ],
+    "gold_functions": [
+      "astroid/raw_building.py::astroid.raw_building.InspectBuilder.imported_member"
+    ]
+  },
+  {
+    "instance_id": "pyvista__pyvista-4315",
+    "repo": "pyvista/pyvista",
+    "base_commit": "db6ee8dd4a747b8864caae36c5d05883976a3ae5",
+    "created_at": "2023-04-21T13:47:31Z",
+    "order_in_repo": 0,
+    "gold_files": [
+      "pyvista/core/grid.py"
+    ],
+    "gold_functions": [
+      "pyvista/core/grid.py::pyvista.core.grid.RectilinearGrid.__init__"
+    ]
+  },
+  {
+    "instance_id": "sqlfluff__sqlfluff-1517",
+    "repo": "sqlfluff/sqlfluff",
+    "base_commit": "304a197829f98e7425a46d872ada73176137e5ae",
+    "created_at": "2021-10-06T07:57:35Z",
+    "order_in_repo": 0,
+    "gold_files": [
+      "src/sqlfluff/core/parser/helpers.py"
+    ],
+    "gold_functions": [
+      "src/sqlfluff/core/parser/helpers.py::src.sqlfluff.core.parser.helpers.check_still_complete"
+    ]
+  },
+  {
+    "instance_id": "sqlfluff__sqlfluff-1625",
+    "repo": "sqlfluff/sqlfluff",
+    "base_commit": "14e1a23a3166b9a645a16de96f694c77a5d4abb7",
+    "created_at": "2021-10-13T11:35:29Z",
+    "order_in_repo": 1,
+    "gold_files": [
+      "src/sqlfluff/rules/L031.py"
+    ],
+    "gold_functions": [
+      "src/sqlfluff/rules/L031.py::src.sqlfluff.rules.L031.Rule_L031._lint_aliases_in_join"
+    ]
+  },
+  {
+    "instance_id": "sqlfluff__sqlfluff-1733",
+    "repo": "sqlfluff/sqlfluff",
+    "base_commit": "a1579a16b1d8913d9d7c7d12add374a290bcc78c",
+    "created_at": "2021-10-22T18:23:33Z",
+    "order_in_repo": 2,
+    "gold_files": [
+      "src/sqlfluff/rules/L039.py"
+    ],
+    "gold_functions": [
+      "src/sqlfluff/rules/L039.py::src.sqlfluff.rules.L039.Rule_L039._eval"
+    ]
+  },
+  {
+    "instance_id": "sqlfluff__sqlfluff-1763",
+    "repo": "sqlfluff/sqlfluff",
+    "base_commit": "a10057635e5b2559293a676486f0b730981f037a",
+    "created_at": "2021-10-26T17:28:28Z",
+    "order_in_repo": 3,
+    "gold_files": [
+      "src/sqlfluff/core/linter/linted_file.py"
+    ],
+    "gold_functions": [
+      "src/sqlfluff/core/linter/linted_file.py::src.sqlfluff.core.linter.linted_file.LintedFile.persist_tree"
+    ]
+  },
+  {
+    "instance_id": "sqlfluff__sqlfluff-2419",
+    "repo": "sqlfluff/sqlfluff",
+    "base_commit": "f1dba0e1dd764ae72d67c3d5e1471cf14d3db030",
+    "created_at": "2022-01-22T12:21:52Z",
+    "order_in_repo": 4,
+    "gold_files": [
+      "src/sqlfluff/rules/L060.py"
+    ],
+    "gold_functions": [
+      "src/sqlfluff/rules/L060.py::src.sqlfluff.rules.L060.Rule_L060._eval"
+    ]
+  }
+]

@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     github_app_private_key: SecretStr | None = None
     github_webhook_secret: SecretStr | None = None
 
+    # SWE-bench: bare mirrors of the benchmark repositories live under state_dir/swebench.
     # Local state: clones of remote repositories for the CLI.
     state_dir: Path = Path(".issuescout")
 
