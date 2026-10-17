@@ -178,3 +178,15 @@ One entry per work package: what was built, decisions and why, numbers measured.
 **Numbers.** Dense indexing on this machine: 115 chunks in 64 s including a cold model load (1.8 chunks/s end to end here; the isolated cached-model rate from P1.2 was 16 chunks/s). Sparse-only: 115 chunks in 4.8 s, most of it one-time collection and payload-index creation.
 
 **Dependencies added.** `gitpython` (in the fixed stack).
+
+## P1.5 Metrics module
+
+**Built.** `evaluation/metrics.py`: `hit_at_k`, `recall_at_k`, `reciprocal_rank`, `ndcg_at_k`, `mean`, and `evaluate` (Hit@1, Hit@5, Recall@10, MRR, nDCG@10 averaged over instances). Pure functions over lists of names, so the same code scores files and "path::symbol" functions.
+
+**Done-when evidence (TC-21).** `tests/unit/test_metrics.py`, 14 tests. The module docstring works the example ranking [a,b,c,d,e] with gold {c,e,x} by hand: Hit@1=0, Hit@3=1, Recall@5=2/3, RR=1/3, nDCG@5 = 0.886853 / 2.130930 = 0.416181. Tests assert those literals (not recomputed from the same formula), plus perfect rankings score 1.0, no-hit scores 0, `k` cuts the list, and the ideal DCG is capped at `min(|gold|, k)`.
+
+**Decisions.**
+- **Duplicates in a ranking are removed (first occurrence kept)** before scoring. Chunk-level retrieval can list one file many times; counting each repeat would inflate recall and push true hits down. Test: `["a","a","a","c"]` still gives RR 1/2.
+- **Empty gold raises** rather than scoring 0 or 1. An instance without a gold file is a loader bug (SWE-bench Lite instances all have one), and a silent score would hide it in the averages.
+- **Binary relevance** for nDCG, which is what a gold file set gives. Graded core/supporting weights (FR-EVL-15) can extend this later.
+- **Recall divides by the number of distinct gold items**, not by `k`, so it measures coverage of the answer rather than list length.
