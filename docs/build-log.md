@@ -44,3 +44,15 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - Qdrant's image has no curl/wget, so its health check opens the port with bash `/dev/tcp`; MLflow's uses Python's urllib against `/health`.
 - MLflow uses SQLite plus artifacts on its volume: enough for a single-developer experiment tracker, and one fewer service than a Postgres backend (Postgres is also on the banned list).
 - Compose file is `deploy/compose.yaml`, per Appendix C (`deploy/`), run with `-f`.
+## P0.4 CI workflow
+
+**Built.** `.github/workflows/ci.yml`: on every push and pull request, `uv sync --locked`, `ruff format --check`, `ruff check`, `mypy`, `pytest`. Read-only token permissions, concurrency group cancels superseded runs, 15-minute timeout, uv pinned to 0.13.1.
+
+**Verified locally.** Each CI step passes on the current tree; adding a failing test makes pytest exit 1 (the red case), then removed.
+
+**NOT yet verified: the GitHub half of "Done when".** "Green on main, red on a branch with a failing test" needs a GitHub remote. This folder had no remote, so the workflow has not run on GitHub. Outstanding until the repository is pushed (see Gate 0).
+
+**Decisions.**
+- `uv sync --locked` fails CI if `uv.lock` is out of date, so lock drift cannot reach main.
+- Same commands as the pre-commit hooks, so local and CI results agree.
+- Actions are pinned to major tags (`checkout@v4`, `setup-uv@v6`); SHA pinning is a P4.3 supply-chain item.
