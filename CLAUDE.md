@@ -12,8 +12,8 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 
 ## Current status
 
-- Phase: 0 (Foundations), at Gate 0 review
-- Next package: P1.1 Python chunker (Phase 0 complete after Gate 0 sign-off)
+- Phase: 1 (Baseline)
+- Next package: P1.2 Encoders and cache
 - Update these two lines whenever a package closes.
 
 ## How we work
