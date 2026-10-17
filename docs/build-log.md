@@ -114,3 +114,22 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - Using a node after its `Tree` is garbage-collected is an access violation, so `_chunk_python` holds the tree for the whole walk.
 
 **Dependencies added.** `tree-sitter`, `tree-sitter-python`. The grammar package was not in the CLAUDE.md list; SRS 3.7 names tree-sitter grammars as a dependency, so it was added as part of tree-sitter. Flagged here for your veto.
+
+## P1.2 Encoders and cache
+
+**Built.** `indexing/sparse.py`: code-aware tokenizer, hashed sparse vectors (BM25 term-frequency weights), query vectors, and `embedding_text` (path and symbol prefix). `indexing/dense.py`: `DenseEncoder` protocol, `SentenceTransformerEncoder`, SQLite-backed `EmbeddingCache`, and `embed_texts` (cache lookup, batching, dedupe, resumable). New settings for the model, revision, batch size, cache directory and BM25 constants.
+
+**Done-when evidence.** 93 tests pass (28 new). Tokenizer cases cover camelCase, acronyms, snake_case, dotted chains, hyphens, digits. Real run of `scripts/check_embedding_cache.py` on this repo's `src/` (77 chunks, `all-MiniLM-L6-v2`, CPU): cold 4.69 s (16.4 chunks/s), warm 0.001 s, about 4,700x faster, vectors identical.
+
+**Decisions.**
+- **Identifiers keep their unsplit form and add parts.** `getUserName` gives `getusername, get, user, name`, so an issue saying "user name" and one saying `getUserName` both match (FR-IDX-12). Test `test_issue_words_match_identifier_parts` states the reason.
+- **Hashing terms to CRC32 indices** instead of keeping a vocabulary. Qdrant sparse vectors need integer indices, a vocabulary would have to be stored and shared across index versions, and a hash needs none. Cost: rare collisions, handled by summing weights so indices stay unique.
+- **Weights are BM25's term-frequency half only**; Qdrant's IDF modifier supplies the rest at query time. Length normalisation uses a placeholder `sparse_avgdl=120`. P1.7 measures the real mean chunk length and fixes it. Query terms weigh 1.0 and repeats are ignored.
+- **Cache key = SHA-256 of (model id incl. revision, enriched text).** A new model or revision gets new keys, so vectors never mix. Because the key covers path and symbol, moving a file re-embeds it, which is correct since the input changed.
+- **SQLite from the standard library** for the cache: no new dependency, one file, safe to delete. Partial progress is saved per batch, so an interrupted index resumes (groundwork for FR-IDX-15).
+- **`trust_remote_code=False`.** Some embedding models, such as jina-embeddings-v2-base-code from the SRS shortlist, run third-party Python on load. The default model is Qwen3-Embedding-0.6B for that reason; P2.2 can reopen it deliberately.
+- **Embedding model is provisional**, default `Qwen/Qwen3-Embedding-0.6B` (revision unpinned until P2.2 chooses). The timing check used the small MiniLM only to avoid a 1.2 GB download before it matters.
+
+**Numbers to watch.** MiniLM manages 16 chunks/s on this CPU against NFR-PERF-06's 12 chunks/s floor. Qwen3-0.6B is roughly 25x larger, so expect it to miss that floor. P1.7 measures real indexing speed; the cache and the GPU-notebook fallback (risk R-02) are the answers.
+
+**Dependencies added.** `sentence-transformers` (with `torch`, `transformers`, `numpy` transitively), all pinned in `uv.lock`.
