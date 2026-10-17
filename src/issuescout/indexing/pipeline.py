@@ -74,6 +74,43 @@ def _grouped(items: list[Chunk], size: int) -> Iterator[list[Chunk]]:
         yield items[start : start + size]
 
 
+def embed_and_upsert(
+    chunks: list[Chunk],
+    *,
+    settings: Settings,
+    client: QdrantClient,
+    encoder: DenseEncoder | None,
+    cache: EmbeddingCache | None,
+    repo_id: int,
+    commit_sha: str,
+    collection: str,
+) -> set[str]:
+    """Encode a group of chunks and write them. Returns the point IDs written.
+
+    Shared by the local CLI index and the benchmark's commit-to-commit sync, so both
+    build identical points from identical chunks.
+    """
+    texts = [embedding_text(c) for c in chunks]
+    dense: list[list[float]] | None = None
+    if encoder is not None:
+        if cache is None:
+            raise ValueError("a dense encoder needs an embedding cache")
+        dense = [v.tolist() for v in embed_texts(texts, encoder, cache, settings.dense_batch_size)]
+    ensure_collection(client, len(dense[0]) if dense else None, collection)
+    upsert_chunks(
+        client,
+        chunks,
+        dense,
+        [sparse_document_vector(t, settings) for t in texts],
+        repo_id=repo_id,
+        installation_id=CLI_INSTALLATION_ID,
+        commit_sha=commit_sha,
+        index_version=CLI_INDEX_VERSION,
+        collection=collection,
+    )
+    return {point_id(repo_id, CLI_INDEX_VERSION, c) for c in chunks}
+
+
 def index_repository(
     root: Path,
     *,
@@ -98,36 +135,24 @@ def index_repository(
         chunks.extend(chunk_file(rel, data, settings, ast=ast))
     stats.skipped = dict(skipped)
 
-    if encoder is not None and cache is None:
-        raise ValueError("a dense encoder needs an embedding cache")
     hits_before = cache.hits if cache else 0
     misses_before = cache.misses if cache else 0
 
     keep: set[str] = set()
-    collection_ready = False
     for group in _grouped(chunks, GROUP_SIZE):
-        texts = [embedding_text(c) for c in group]
-        dense = None
-        if encoder is not None and cache is not None:
-            dense = embed_texts(texts, encoder, cache, settings.dense_batch_size)
-        if not collection_ready:
-            ensure_collection(client, len(dense[0]) if dense else None, collection)
-            collection_ready = True
-        upsert_chunks(
-            client,
+        keep |= embed_and_upsert(
             group,
-            [v.tolist() for v in dense] if dense is not None else None,
-            [sparse_document_vector(t, settings) for t in texts],
+            settings=settings,
+            client=client,
+            encoder=encoder,
+            cache=cache,
             repo_id=repo_id,
-            installation_id=CLI_INSTALLATION_ID,
             commit_sha=stats.commit_sha,
-            index_version=CLI_INDEX_VERSION,
             collection=collection,
         )
-        keep.update(point_id(repo_id, CLI_INDEX_VERSION, c) for c in group)
     stats.chunks = len(chunks)
 
-    if collection_ready:
+    if chunks:
         stats.removed_stale = delete_stale_points(
             client,
             repo_id=repo_id,
