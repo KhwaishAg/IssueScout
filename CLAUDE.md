@@ -13,7 +13,7 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 ## Current status
 
 - Phase: 1 (Baseline)
-- Next package: P1.2 Encoders and cache
+- Next package: P1.3 Qdrant storage
 - Update these two lines whenever a package closes.
 
 ## How we work

@@ -6,6 +6,7 @@ environment and from an ignored ``.env`` file; nothing secret has a default.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr
@@ -37,6 +38,18 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = Field(60, ge=0, description="Overlap between split windows")
     window_lines: int = Field(60, gt=0, description="Line-window size for fallback chunking")
     window_overlap_lines: int = Field(10, ge=0, description="Overlap between line windows")
+
+    # Encoders (SRS 4.3 step 7, 5.2). The model is provisional: P2.2 picks it by measurement.
+    embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    embedding_revision: str | None = None  # pin to a commit hash once P2.2 chooses a model
+    embedding_max_seq_length: int = Field(512, gt=0, description="Token cap per chunk")
+    dense_batch_size: int = Field(32, gt=0, description="Chunks per encoder batch")
+    embedding_cache_dir: Path = Path(".embedding_cache")
+    # Sparse term weighting (BM25 TF part; Qdrant applies IDF). avgdl is a placeholder
+    # until P1.7 measures the real mean chunk length.
+    sparse_k1: float = Field(1.2, gt=0)
+    sparse_b: float = Field(0.75, ge=0, le=1)
+    sparse_avgdl: float = Field(120.0, gt=0)
 
     # Generation (Appendix B)
     llm_timeout_seconds: int = Field(20, gt=0, description="Hard limit on generation")
