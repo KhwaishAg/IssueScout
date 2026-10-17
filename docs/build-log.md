@@ -56,3 +56,16 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - `uv sync --locked` fails CI if `uv.lock` is out of date, so lock drift cannot reach main.
 - Same commands as the pre-commit hooks, so local and CI results agree.
 - Actions are pinned to major tags (`checkout@v4`, `setup-uv@v6`); SHA pinning is a P4.3 supply-chain item.
+## P0.5 Doctor command
+
+**Built.** Typer CLI (`issuescout` entry point) with `issuescout doctor [--json]`. `doctor.py` checks Qdrant (`/readyz`), MLflow (`/health`), MongoDB and RabbitMQ (TCP connect), and the Hugging Face model cache. Exit 0 if nothing failed, 1 otherwise; the failing service is named on its own line.
+
+**Done-when evidence (real stack).** All up: four `[OK]` lines, exit 0. After `docker stop issuescout-qdrant-1`: `[FAIL] qdrant ... unreachable: ConnectError`, others OK, exit 1. Unit tests (7) cover both outcomes without a live stack.
+
+**Decisions.**
+- Protocol-level probes (HTTP, TCP) instead of `pymongo`/`pika`: no driver dependency before a package uses one. Trade-off: a TCP connect proves the port is open, not that auth or the protocol works. When P1.3 and P3.1 add real clients, doctor should switch to client pings.
+- Empty model cache is a **warning**, not a failure, because models are chosen in P2.2 (SRS 5.3); it becomes a failure then.
+- Checks never raise and all run every time, so one dead service cannot hide another.
+- Tests stub the network probes; only the manual run above touched real services.
+
+**Dependencies added.** `typer`, `httpx` (both in the fixed stack).
