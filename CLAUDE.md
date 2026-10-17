@@ -13,7 +13,7 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 ## Current status
 
 - Phase: 0 (Foundations)
-- Next package: P0.6 GitHub App setup
+- Next package: Gate 0 review (open: P0.6 app registration by Khwaish, P0.4 run on GitHub)
 - Update these two lines whenever a package closes.
 
 ## How we work
@@ -69,7 +69,7 @@ Follow SRS Appendix C: `src/issuescout/` with the packages `api`, `github`, `ind
 
 ## Open questions (SRS Appendix D)
 
-These are answered during P0.7. Until then, assume public repositories only and no Langfuse.
+Answered in P0.7; see docs/decisions/0004-open-questions.md. Summary: public repositories only, no Langfuse, free hosting only (affects P4.1), own repositories for the first installs.
 
 - Is the name IssueScout free as a GitHub App name and as a package name?
 - What is the monthly hosting budget, and are AWS student credits available?

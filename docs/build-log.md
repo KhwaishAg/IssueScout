@@ -81,3 +81,12 @@ One entry per work package: what was built, decisions and why, numbers measured.
 - Secrets arrive only via environment/`.env`; `.gitignore` also blocks `.env*` (except `.env.example`) and `*.pem` as a backstop.
 - The scanner covers history, not just the working tree, because a secret deleted in a later commit is still leaked.
 - Setup guide examples avoid a literal key header so the scanner does not flag the docs.
+## P0.7 Decisions
+
+**Built.** `docs/decisions/0001-stack.md`, `0002-chunking.md`, `0003-vector-store.md` (context, decision, why, alternatives rejected, consequences) and `0004-open-questions.md` answering every SRS Appendix D question. Appendix D boxes ticked in the SRS with a pointer to ADR 0004; CLAUDE.md summary updated.
+
+**Answers.** Public repos only; no Langfuse; free hosting only; first installs on own repos; package name free on PyPI (GitHub App name confirmed at registration).
+
+**Flag for later.** "Free only" conflicts with the SRS's one 2 vCPU / 8 GB EC2 instance (NFR-CST-01). ADR 0004 lists the options; decide at the Phase 3 gate. Phases 0 to 3 are unaffected.
+
+**Interview notes.** Be ready to defend: why no LangChain (opaque stages vs the ablation), why a function-level chunk (human-navigable unit, fixes are made at function level), why one filtered Qdrant collection (cheap isolation, one audited search function).
