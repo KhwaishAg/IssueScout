@@ -186,43 +186,70 @@ def search_code(
     dense: Sequence[float] | None = None,
     sparse: SparseVector | None = None,
     limit: int = 50,
+    candidates: int | None = None,
     exclude_tests: bool = False,
     collection: str = CODE_COLLECTION,
 ) -> list[Hit]:
     """The only way to search code chunks (NFR-SEC-06).
 
-    Exactly one of ``dense`` or ``sparse`` selects the mode; hybrid fusion arrives in P2.1
-    inside this same function. ``repo_id`` and ``index_version`` have no defaults and are
-    always applied as filters, so a search can never cross repositories or index versions.
+    Pass ``dense``, ``sparse`` or both. With both, the two searches run as prefetches
+    of ``candidates`` chunks each (default ``limit``) and are merged by reciprocal rank
+    fusion in one Qdrant query (FR-RET-02), which needs no score calibration between the
+    two lists. ``repo_id`` and ``index_version`` have no defaults and are applied as a
+    filter to every stage, so a search can never cross repositories or index versions.
     """
-    if (dense is None) == (sparse is None):
-        raise ValueError("pass exactly one of dense or sparse")
+    if dense is None and sparse is None:
+        raise ValueError("pass dense, sparse or both")
+    use_sparse = sparse is not None and bool(sparse[0])  # no usable terms: nothing to match
+    if dense is None and not use_sparse:
+        return []
     query_filter = _scope(repo_id, index_version, exclude_tests)
-    if dense is not None:
+
+    def dense_query() -> list[float]:
+        assert dense is not None
+        return [float(x) for x in dense]
+
+    def sparse_query() -> models.SparseVector:
+        assert sparse is not None
+        return models.SparseVector(indices=list(sparse[0]), values=list(sparse[1]))
+
+    if dense is not None and use_sparse:
+        depth = candidates or limit
         response = client.query_points(
             collection,
-            query=[float(x) for x in dense],
+            prefetch=[
+                models.Prefetch(query=dense_query(), using=DENSE, filter=query_filter, limit=depth),
+                models.Prefetch(
+                    query=sparse_query(), using=SPARSE, filter=query_filter, limit=depth
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query_filter=query_filter,
+            limit=limit,
+            with_payload=True,
+        )
+    elif dense is not None:
+        response = client.query_points(
+            collection,
+            query=dense_query(),
             using=DENSE,
             query_filter=query_filter,
             limit=limit,
             with_payload=True,
         )
     else:
-        assert sparse is not None
-        if not sparse[0]:
-            return []  # a query with no usable terms matches nothing
         response = client.query_points(
             collection,
-            query=models.SparseVector(indices=list(sparse[0]), values=list(sparse[1])),
+            query=sparse_query(),
             using=SPARSE,
             query_filter=query_filter,
             limit=limit,
             with_payload=True,
         )
     hits = [_hit(p.score, p.payload or {}) for p in response.points]
-    # Equal scores are common (similar functions) and Qdrant returns ties in an order that
-    # depends on write history. Break them by location so the same index and query always
-    # give the same ranking (FR-RET-12).
+    # Equal scores are common (similar functions; RRF ranks tie often) and Qdrant returns
+    # ties in an order that depends on write history. Break them by location so the same
+    # index and query always give the same ranking (FR-RET-12).
     return sorted(hits, key=lambda h: (-h.score, h.path, h.start_line, h.symbol))
 
 

@@ -14,6 +14,7 @@ from issuescout.indexing.sparse import (
 )
 from issuescout.settings import Settings
 from issuescout.storage.qdrant import (
+    Hit,
     count_points,
     delete_repository,
     ensure_collection,
@@ -232,20 +233,98 @@ def test_ensure_collection_is_idempotent_and_rejects_a_different_dimension(
         ensure_collection(qdrant_client, DIM + 1, collection)
 
 
-def test_search_requires_exactly_one_query_vector(
+def test_search_requires_at_least_one_query_vector(
     qdrant_client: QdrantClient, collection: str
 ) -> None:
-    with pytest.raises(ValueError, match="exactly one"):
+    with pytest.raises(ValueError, match="dense, sparse or both"):
         search_code(qdrant_client, repo_id=1, index_version=1, collection=collection)
-    with pytest.raises(ValueError, match="exactly one"):
-        search_code(
+
+
+def _hybrid_corpus(qdrant_client: QdrantClient, collection: str, repo_id: int = 1) -> list[Chunk]:
+    ensure_collection(qdrant_client, DIM, collection)
+    zeta = "def unrelated_zeta():\n    return 0\n"
+    chunks = make_chunks("pkg/net.py", RETRY_SRC + "\n\n" + PARSE_SRC + "\n\n" + zeta)
+    index(qdrant_client, collection, chunks, repo_id=repo_id)
+    return chunks
+
+
+def _search(
+    client: QdrantClient,
+    collection: str,
+    *,
+    dense: list[float] | None = None,
+    sparse: tuple[list[int], list[float]] | None = None,
+    repo: int = 1,
+    limit: int = 10,
+) -> list[Hit]:
+    return search_code(
+        client,
+        repo_id=repo,
+        index_version=1,
+        dense=dense,
+        sparse=sparse,
+        limit=limit,
+        collection=collection,
+    )
+
+
+def test_hybrid_returns_the_union_of_both_signals(
+    qdrant_client: QdrantClient, collection: str
+) -> None:
+    chunks = _hybrid_corpus(qdrant_client, collection)
+    target = next(c for c in chunks if c.symbol.endswith("parse_config"))
+    dense_q = fake_dense(embedding_text(target))  # dense: finds parse_config
+    sparse_q = sparse_query_vector("retry_request")  # keywords: find retry_request
+    dense_only = {h.symbol for h in _search(qdrant_client, collection, dense=dense_q)}
+    sparse_only = {h.symbol for h in _search(qdrant_client, collection, sparse=sparse_q)}
+    both = {h.symbol for h in _search(qdrant_client, collection, dense=dense_q, sparse=sparse_q)}
+    assert "pkg.net.parse_config" in dense_only
+    assert "pkg.net.retry_request" in sparse_only
+    assert both >= dense_only | sparse_only  # nothing either signal found is lost
+
+
+def test_hybrid_is_scoped_to_the_repository_in_every_stage(
+    qdrant_client: QdrantClient, collection: str
+) -> None:
+    """TC-11 for the fused path: the prefetch stages each carry the repository filter."""
+    chunks = _hybrid_corpus(qdrant_client, collection, repo_id=1)
+    index(qdrant_client, collection, chunks, repo_id=2)  # identical code in repository 2
+    query = fake_dense(embedding_text(chunks[0]))
+    for repo in (1, 2):
+        hits = _search(
             qdrant_client,
-            repo_id=1,
-            index_version=1,
-            dense=[0.0] * DIM,
-            sparse=([1], [1.0]),
-            collection=collection,
+            collection,
+            dense=query,
+            sparse=sparse_query_vector("retry_request fetch"),
+            repo=repo,
+            limit=20,
         )
+        assert hits
+        assert {h.repo_id for h in hits} == {repo}
+
+
+def test_hybrid_is_deterministic(qdrant_client: QdrantClient, collection: str) -> None:
+    chunks = _hybrid_corpus(qdrant_client, collection)
+    dense_q = fake_dense(embedding_text(chunks[0]))
+    sparse_q = sparse_query_vector("retry parse config zeta")
+    runs = [
+        [
+            (h.path, h.start_line, h.score)
+            for h in _search(qdrant_client, collection, dense=dense_q, sparse=sparse_q)
+        ]
+        for _ in range(3)
+    ]
+    assert runs[0] == runs[1] == runs[2]
+
+
+def test_hybrid_with_no_usable_keywords_falls_back_to_the_dense_ranking(
+    qdrant_client: QdrantClient, collection: str
+) -> None:
+    chunks = _hybrid_corpus(qdrant_client, collection)
+    vec = fake_dense(embedding_text(chunks[0]))
+    dense_only = _search(qdrant_client, collection, dense=vec)
+    empty_terms = _search(qdrant_client, collection, dense=vec, sparse=([], []))
+    assert [h.symbol for h in empty_terms] == [h.symbol for h in dense_only]
 
 
 def test_empty_sparse_query_matches_nothing(qdrant_client: QdrantClient, collection: str) -> None:

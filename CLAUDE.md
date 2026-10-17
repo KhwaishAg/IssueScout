@@ -12,8 +12,8 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 
 ## Current status
 
-- Phase: 1 (Baseline), at Gate 1 review (not fully met: A2 dense baseline missing, see docs/gate-1.md)
-- Next package: run A2 when disk space allows, then P2.1 Hybrid fusion
+- Phase: 2 (Quality). Gate 1 met (docs/gate-1.md)
+- Next package: P2.2 Reranker and model selection
 - Update these two lines whenever a package closes.
 
 ## How we work

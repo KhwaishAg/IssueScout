@@ -2,14 +2,14 @@
 
 Date: 2026-10-17 · Phase 1 (Baseline) · Evidence for every item, including what is missing.
 
-**Verdict: Gate 1 is not fully met.** One item is open by decision: the dense baseline (A2)
-was skipped for now because the machine ran out of disk space. Everything else passes.
+**Verdict: Gate 1 is met** (updated after the dense baseline A2 was run once disk space was
+freed). Every item below passes.
 
 ## Checklist
 
 | # | Item | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Recall@10 for the sparse and dense baselines is recorded in MLflow | **Partly.** Sparse yes; dense **missing** | A0 run `c5d8ebad`, A1 run `d532b1b6` in experiment `issuescout-retrieval`. No A2 run exists. |
+| 1 | Recall@10 for the sparse and dense baselines is recorded in MLflow | Met | Experiment `issuescout-retrieval`: A0 run `c5d8ebad`, A1 run `d532b1b6`, A2 run `8c39e9a0`. |
 | 2 | The CLI returns ranked files for a query on a local repository | Met | P1.4: `issuescout index src` then `issuescout query ...` printed ranked files with symbols and line ranges in sparse and dense mode (build log). |
 | 3 | TC-03 to TC-06, TC-11 and TC-21 pass in CI | Met | CI run `39034706543` on `7ca6c97`: green, 192 tests, including Qdrant integration tests (service container). TC-03/04/05: `tests/unit/test_chunker.py`; TC-06/11: `tests/integration/test_qdrant_storage.py`; TC-21: `tests/unit/test_metrics.py`. |
 | 4 | SRS section 6.6 holds measured values, and G1 has a fixed target | Met | SRS 6.6 rewritten from measurements (`scripts/measure_volumes.py`); G1 fixed at 0.85; see below. |
@@ -20,7 +20,7 @@ was skipped for now because the machine ran out of disk space. Everything else p
 | --- | --- | --- | --- | --- | --- | --- |
 | A0 line windows, keyword | 0.304 | 0.652 | 0.783 (18/23) | 0.453 | 0.529 | n/a |
 | A1 function chunks, keyword | 0.391 | 0.696 | 0.739 (17/23) | 0.535 | 0.581 | 0.714 (21 instances) |
-| A2 function chunks, embeddings | **not run** | | | | | |
+| A2 function chunks, embeddings (all-MiniLM-L6-v2) | 0.174 | 0.478 | 0.609 (14/23) | 0.317 | 0.376 | 0.333 (21 instances) |
 
 How much to trust these: one instance is 4.3 points of Recall@10, so A0 and A1 are tied
 on Recall@10 (they differ by one instance). Function-level chunking improves ranking
@@ -28,6 +28,13 @@ quality (Hit@1 0.30 to 0.39, MRR 0.45 to 0.54), which is the more informative di
 The dev split is six small repositories (1 to 5 instances each), and results are uneven:
 pvlib and marshmallow 1.0, pydicom 0.4 to 0.6, astroid 0.8 to 1.0, sqlfluff 0.6.
 Per-instance results and the misses are stored as MLflow artifacts.
+
+The dense baseline is clearly weaker than keyword search on this data (Recall@10 0.61
+against 0.74 to 0.78; Hit@1 0.17 against 0.30 to 0.39). Its errors are different, though:
+it finds all five pydicom instances (Recall@10 1.0, where keyword search found 0.4 to 0.6)
+because it bridges the vocabulary gap, and does badly on sqlfluff (0.2) and astroid (0.4).
+Complementary strengths are exactly what fusion (P2.1) is meant to use. The model is a
+small provisional one (22M parameters); P2.2 chooses the real model by measurement.
 
 ## Decision: fix the recall target (G1) and revise G2
 
@@ -91,9 +98,7 @@ Patterns, with the Phase 2 work that addresses each:
 
 ## Open items carried into Phase 2
 
-1. **Run A2** (dense baseline, `all-MiniLM-L6-v2`) once about 1 GB of disk is free:
-   `uv run issuescout eval --split dev --config A2`. It resumes cheaply because embeddings
-   are cached. Gate 1 item 1 is complete only then.
-2. **Disk space.** The C: drive was 100% full. Docker's virtual disk is 30 GB and grew
-   during indexing; it does not shrink by itself.
-3. P1.8 did not run the test split, by design.
+1. **Disk space.** The C: drive hit 100% full during indexing; about 2.4 GB is free now.
+   Docker's virtual disk is 30 GB and does not shrink by itself, so large indexing runs
+   (the 300-instance test split) need a plan before P2.6.
+2. P1.8 did not run the test split, by design.
