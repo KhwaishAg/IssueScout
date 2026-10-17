@@ -13,7 +13,7 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 ## Current status
 
 - Phase: 1 (Baseline)
-- Next package: P1.3 Qdrant storage
+- Next package: P1.4 CLI index and query
 - Update these two lines whenever a package closes.
 
 ## How we work

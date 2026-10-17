@@ -133,3 +133,24 @@ One entry per work package: what was built, decisions and why, numbers measured.
 **Numbers to watch.** MiniLM manages 16 chunks/s on this CPU against NFR-PERF-06's 12 chunks/s floor. Qwen3-0.6B is roughly 25x larger, so expect it to miss that floor. P1.7 measures real indexing speed; the cache and the GPU-notebook fallback (risk R-02) are the answers.
 
 **Dependencies added.** `sentence-transformers` (with `torch`, `transformers`, `numpy` transitively), all pinned in `uv.lock`.
+
+## P1.3 Qdrant storage
+
+**Built.** `storage/qdrant.py`: `ensure_collection` (named `dense` cosine and `sparse` IDF vectors, payload indexes on repo_id, installation_id, path, language, kind, is_test, index_version), deterministic `point_id`, `upsert_chunks`, the single `search_code`, `count_points`, `delete_repository`. CI now starts a Qdrant service container and waits for `/readyz`.
+
+**Done-when evidence (real Qdrant 1.15.5).** TC-06: indexing the same chunks twice leaves the point count unchanged. TC-11: two repositories holding identical code, queried with the exact text of the other repository's chunk, return only the scoped repository's hits in dense and sparse modes; an unknown repository returns nothing; searching index version 2 never returns version 1 points. Also tested: changed chunk gets a new ID while unchanged ones keep theirs, sparse ranking puts the matching function first (IDF working), dense ranking puts the identical text first at score 1.0, `exclude_tests`, delete by repository, collection reuse and dimension-mismatch error. Full suite: 111 passed in 14 s.
+
+**Security test.** `tests/security/test_search_isolation.py` scans `src/` and fails if any module other than `storage/qdrant.py` calls `query_points`, `search`, `scroll`, `recommend` and similar on a client, or if anything outside `storage/` imports `qdrant_client`. It also asserts `repo_id` and `index_version` are required keyword-only arguments of `search_code`. A self-test proves the scanner flags a bypass.
+
+**Decisions.**
+- **Filter by construction, not by convention.** `search_code` has no default for `repo_id` or `index_version`, both are keyword-only, and the filter is built inside. A caller cannot forget it because there is nothing to forget. The scanning test turns "never bypass it" into a CI failure.
+- **Point ID = UUIDv5(repo, version, path, symbol, content hash)** per FR-IDX-13. Line numbers are deliberately not in the key, so an edit above a function changes its payload but not its ID. Byte-identical duplicate definitions of one name in one file collapse to one point.
+- **`repo_id` is an integer** (SRS 6.1) with an exact-lookup index. Qdrant's tenant co-location flag exists only for keyword indexes; switching `repo_id` to a keyword is a possible optimisation if the P4.4 load test needs it.
+- **Dimension check on reuse.** Changing the embedding model changes the vector size; `ensure_collection` raises instead of mixing sizes.
+- **Integration tests use the Compose Qdrant locally and a service container in CI**, instead of Testcontainers: no extra dependency, and the Compose file already is the supported way to run it. Locally they skip when Qdrant is down; in CI (`CI` set) a missing Qdrant is a failure.
+
+**Surprises worth knowing.**
+- **`localhost` costs about 2 s per call on Windows** (IPv6 attempted first, then IPv4 after a timeout). Every Qdrant call took 2 s until the defaults became `127.0.0.1`, after which calls take about 10 ms. All service URLs now default to `127.0.0.1`. This also speeds up `issuescout doctor`.
+- `qdrant-client` is pinned to the 1.15 line to match the 1.15.5 server; the newest client (1.19) warns about an unsupported version gap. Bump server and client together.
+
+**Dependencies added.** `qdrant-client` (1.15.x). Not named in the CLAUDE.md list but required to use the fixed-stack Qdrant; flagged here for your veto.
