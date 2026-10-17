@@ -66,11 +66,11 @@ class Settings(BaseSettings):
     dry_run: bool = False
 
     # Service endpoints; defaults match the local Docker Compose stack (P0.3).
-    qdrant_url: str = "http://localhost:6333"
-    mongodb_uri: str = "mongodb://localhost:27017"
+    qdrant_url: str = "http://127.0.0.1:6333"
+    mongodb_uri: str = "mongodb://127.0.0.1:27017"
     mongodb_database: str = "issuescout"
-    rabbitmq_url: str = "amqp://guest:guest@localhost:5672//"
-    mlflow_tracking_uri: str = "http://localhost:5000"
+    rabbitmq_url: str = "amqp://guest:guest@127.0.0.1:5672//"
+    mlflow_tracking_uri: str = "http://127.0.0.1:5000"
 
     # GitHub App credentials (FR-APP-07/08). No defaults; SecretStr keeps them out of
     # reprs and logs. Supplied only through the environment or the ignored .env file.

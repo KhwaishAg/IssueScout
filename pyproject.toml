@@ -8,6 +8,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "httpx>=0.28.1",
     "pydantic-settings>=2.16.0",
+    "qdrant-client>=1.15,<1.16",
     "sentence-transformers>=6.1.0",
     "structlog>=26.1.0",
     "tree-sitter>=0.26.0",
