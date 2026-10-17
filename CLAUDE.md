@@ -13,7 +13,7 @@ This is my (Khwaish's) portfolio project for AI/ML and SDE roles. I will be aske
 ## Current status
 
 - Phase: 0 (Foundations)
-- Next package: P0.4 CI workflow
+- Next package: P0.6 GitHub App setup
 - Update these two lines whenever a package closes.
 
 ## How we work

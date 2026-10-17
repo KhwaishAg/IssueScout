@@ -6,9 +6,14 @@ authors = [{ name = "Khwaish Agarwal", email = "agarwalakhwaish@gmail.com" }]
 license = "MIT"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "httpx>=0.28.1",
     "pydantic-settings>=2.16.0",
     "structlog>=26.1.0",
+    "typer>=0.27.3",
 ]
+
+[project.scripts]
+issuescout = "issuescout.cli:app"
 
 [dependency-groups]
 dev = [
